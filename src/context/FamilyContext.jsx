@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
 import { getFamily, getMembers, getChores, getRewards } from '../db/operations'
 import { supabase } from '../db/supabase'
-import { FAMILY_ID, DEFAULT_CONFIG } from '../utils/constants'
+import { DEFAULT_CONFIG } from '../utils/constants'
+import { getFamilyId } from '../utils/family'
 import { formatCurrency } from '../utils/currency'
 import { currentPeriodStart, currentPeriodEnd, isPayday, periodLabel, today } from '../utils/dates'
 import { addDays, format } from 'date-fns'
@@ -20,10 +21,10 @@ export function FamilyProvider({ children }) {
     setLoading(true)
     try {
       const [fam, mems, chs, rews] = await Promise.all([
-        getFamily(FAMILY_ID),
-        getMembers(FAMILY_ID),
-        getChores(FAMILY_ID),
-        getRewards(FAMILY_ID),
+        getFamily(getFamilyId()),
+        getMembers(getFamilyId()),
+        getChores(getFamilyId()),
+        getRewards(getFamilyId()),
       ])
       console.log('[Artha] loadFamily:', { family: fam?.id, members: mems?.length, chores: chs?.length })
       setFamily(fam)

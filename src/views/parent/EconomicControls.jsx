@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { Save } from 'lucide-react'
 import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { updateFamilyConfig, updateMemberConfig } from '../../db/operations'
-import { FAMILY_ID, CURRENCIES } from '../../utils/constants'
+import { CURRENCIES } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 // isPercent: value stored as decimal (0.12), input shown as whole number (12)
 function InputRow({ label, value, display, onChange, isPercent, unit }) {
@@ -66,7 +67,7 @@ export default function EconomicControls() {
   const [payPeriod,   setPayPeriod]   = useState('weekly')
   const [paydayDow,   setPaydayDow]   = useState(6)
   const [paydayDom,   setPaydayDom]   = useState(28)
-  const [autoPayslip, setAutoPayslip] = useState(false)
+  const [autoSettle, setAutoSettle] = useState(false)
 
   // ── Economic settings (per-child or family-wide) ─────────────────
   const [sameForAll,      setSameForAll]      = useState(true)
@@ -92,7 +93,7 @@ export default function EconomicControls() {
     setPayPeriod(c.payPeriod ?? 'weekly')
     setPaydayDow(c.paydayDow ?? 6)
     setPaydayDom(c.paydayDom ?? 28)
-    setAutoPayslip(c.autoPayslip ?? false)
+    setAutoSettle(c.autoSettle ?? c.autoPayslip ?? false)
 
     // Detect if any child has overrides → default sameForAll = false
     const anyOverrides = children.some(ch => ch.config && Object.keys(ch.config).length > 0)
@@ -171,12 +172,12 @@ export default function EconomicControls() {
       payPeriod,
       paydayDow,
       paydayDom: Math.min(31, Math.max(1, paydayDom)),
-      autoPayslip,
+      autoSettle,
     }
 
     if (sameForAll) {
       // Save economic fields + family-wide to family.config
-      await updateFamilyConfig(FAMILY_ID, {
+      await updateFamilyConfig(getFamilyId(), {
         ...family.config,
         ...economicFields,
         ...familyWideFields,
@@ -186,7 +187,7 @@ export default function EconomicControls() {
       await Promise.all(nonParents.map(ch => updateMemberConfig(ch.id, null)))
     } else {
       // Save only family-wide fields to family.config (don't overwrite economic defaults)
-      await updateFamilyConfig(FAMILY_ID, {
+      await updateFamilyConfig(getFamilyId(), {
         ...family.config,
         ...familyWideFields,
       })
@@ -311,10 +312,10 @@ export default function EconomicControls() {
           )}
 
           <Toggle
-            on={autoPayslip}
-            onToggle={() => setAutoPayslip(v => !v)}
-            label="Auto-run payslips on payday"
-            sub={autoPayslip ? 'Runs automatically when parent opens app on payday' : 'Manual only — parent taps Run Payslip'}
+            on={autoSettle}
+            onToggle={() => setAutoSettle(v => !v)}
+            label="Auto-settle payslips on payday"
+            sub={autoSettle ? 'Payslips run and settle automatically on payday' : 'Payslips run automatically; you review and settle manually'}
           />
         </div>
 

@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { today } from '../utils/dates'
-import { DEFAULT_CONFIG, FAMILY_ID } from '../utils/constants'
+import { DEFAULT_CONFIG } from '../utils/constants'
+import { getFamilyId, setFamilyId } from '../utils/family'
 
 // ── Row mappers (DB snake_case → JS camelCase) ────────────────────────────────
 
@@ -22,7 +23,6 @@ function mapMember(row) {
     familyId:               row.family_id,
     name:                   row.name,
     avatar:                 row.avatar,
-    tier:                   row.tier,
     role:                   row.role,
     pin:                    row.pin,
     baseSalary:             row.base_salary,
@@ -96,6 +96,8 @@ function mapPayslip(row) {
     totalDeductions:             row.total_deductions,
     status:                      row.status ?? 'settled',
     bonusPotential:              row.bonus_potential ?? 0,
+    pendingTransactions:         row.pending_transactions ?? [],
+    creditDelta:                 row.credit_delta ?? 0,
   }
 }
 
@@ -197,7 +199,6 @@ export async function updateMember(id, changes) {
   const row = {}
   if ('name' in changes)       row.name        = changes.name
   if ('avatar' in changes)     row.avatar       = changes.avatar
-  if ('tier' in changes)       row.tier         = changes.tier
   if ('role' in changes)       row.role         = changes.role
   if ('pin' in changes)        row.pin     = changes.pin
   if ('baseSalary' in changes) row.base_salary  = changes.baseSalary
@@ -208,7 +209,18 @@ export async function updateMember(id, changes) {
   throwIfError(await supabase.from('members').update(row).eq('id', id))
 }
 
+function validateAccounts(accounts) {
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v)
+  if (!isNum(accounts.spending) || !isNum(accounts.savings) || !isNum(accounts.philanthropy))
+    throw new Error('validateAccounts: balance fields must be finite numbers')
+  if (!Array.isArray(accounts.subGoals))
+    throw new Error('validateAccounts: subGoals must be an array')
+  if (accounts.loan != null && typeof accounts.loan !== 'object')
+    throw new Error('validateAccounts: loan must be null or object')
+}
+
 export async function updateMemberAccounts(memberId, accounts) {
+  validateAccounts(accounts)
   throwIfError(await supabase
     .from('members')
     .update({ accounts })
@@ -472,23 +484,6 @@ export async function rejectRewardRequest(id) {
 
 // ── Compound operations ───────────────────────────────────────────────────────
 
-export async function approveTier1ChoreLog(logId, memberId, coinAmount) {
-  const member = await getMember(memberId)
-  if (!member) throw new Error('Member not found')
-  const jar = member.accounts?.goalJar
-  if (!jar) {
-    return approveChoreLog(logId)
-  }
-
-  await approveChoreLog(logId)
-  const newBalance = Math.min((jar.balance ?? 0) + coinAmount, jar.target)
-  await updateMemberAccounts(memberId, {
-    ...member.accounts,
-    goalJar: { ...jar, balance: newBalance },
-  })
-  await updateCreditScore(memberId, 2)
-}
-
 export async function approveBonusChoreLog(logId) {
   // No immediate credit — bonus chore earnings are included in the next payslip
   await approveChoreLog(logId)
@@ -641,8 +636,16 @@ export async function addPayslip(payslip) {
     created_at:            payslip.createdAt ?? new Date().toISOString(),
     status:                payslip.status ?? 'draft',
     bonus_potential:       payslip.bonusPotential ?? 0,
+    pending_transactions:  payslip.pendingTransactions ?? [],
+    credit_delta:          payslip.creditDelta ?? 0,
   }
   throwIfError(await supabase.from('payslips').insert(row))
+}
+
+export async function rpcSettlePayslip(payslipId) {
+  const { data, error } = await supabase.rpc('settle_payslip', { p_payslip_id: payslipId })
+  throwIfError({ error })
+  return data
 }
 
 export async function getPayslip(payslipId) {
@@ -815,11 +818,10 @@ export async function addMember(memberData) {
     family_id:  memberData.familyId,
     name:       memberData.name,
     avatar:     memberData.avatar ?? '👤',
-    tier:       memberData.tier ?? null,
     role:       memberData.role,
     pin:   memberData.pin,
     base_salary: memberData.baseSalary ?? 0,
-    accounts:   memberData.accounts ?? { spending: 0, savings: 0, goalJar: null },
+    accounts:   memberData.accounts ?? { spending: 0, savings: 0, philanthropy: 0, subGoals: [], loan: null },
     config:     memberData.config ?? null,
     credit_score: memberData.creditScore ?? 500,
   }
@@ -1235,7 +1237,6 @@ export async function importAllData(data) {
       family_id:    m.familyId,
       name:         m.name,
       avatar:       m.avatar,
-      tier:         m.tier,
       role:         m.role,
       pin:     m.pin,
       base_salary:  m.baseSalary,
@@ -1478,17 +1479,17 @@ export async function claimDevice(code) {
     claimed_at: now,
   }))
 
+  setFamilyId(row.family_id)
   return { familyId: row.family_id, memberId: row.member_id }
 }
 
 // ── Onboarding ────────────────────────────────────────────────────────────────
 
-/** Returns true if the family row already exists in Supabase. */
+/** Returns true if any family row exists in Supabase (single-family phase check). */
 export async function checkFamilyExists() {
   const { count } = await supabase
     .from('families')
     .select('id', { count: 'exact', head: true })
-    .eq('id', FAMILY_ID)
   return (count ?? 0) > 0
 }
 
@@ -1497,9 +1498,12 @@ export async function checkFamilyExists() {
  * Returns the new memberId so the device can be auto-claimed and auto-logged-in.
  */
 export async function createFamily({ familyName, memberName, avatar, pinHash }) {
+  const familyId = crypto.randomUUID()
+  setFamilyId(familyId)
+
   // Family row
   throwIfError(await supabase.from('families').insert({
-    id:               FAMILY_ID,
+    id:               familyId,
     name:             familyName,
     config:           { ...DEFAULT_CONFIG },
     tax_fund_balance: 0,
@@ -1510,10 +1514,9 @@ export async function createFamily({ familyName, memberName, avatar, pinHash }) 
   const memberId = crypto.randomUUID()
   throwIfError(await supabase.from('members').insert({
     id:           memberId,
-    family_id:    FAMILY_ID,
+    family_id:    familyId,
     name:         memberName,
     role:         'parent',
-    tier:         null,
     pin:          pinHash,
     avatar,
     base_salary:  0,
@@ -1525,10 +1528,10 @@ export async function createFamily({ familyName, memberName, avatar, pinHash }) 
   const deviceId = getOrCreateDeviceId()
   await supabase.from('device_claims').upsert({
     device_id:  deviceId,
-    family_id:  FAMILY_ID,
+    family_id:  familyId,
     member_id:  memberId,
     claimed_at: new Date().toISOString(),
   })
 
-  return { memberId, deviceId }
+  return { memberId, deviceId, familyId }
 }

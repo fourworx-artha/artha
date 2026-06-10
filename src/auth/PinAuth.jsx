@@ -142,7 +142,7 @@ export default function PinAuth() {
     setSubmitting(false)
 
     if (ok) {
-      // Route based on role and tier
+      // Route based on role
       if (selectedMember.role === 'parent') {
         navigate('/parent')
       } else {

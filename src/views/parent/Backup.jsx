@@ -6,7 +6,7 @@ import { migrateToSupabase } from '../../db/migrate'
 import { runPayslip, settlePayslip } from '../../engine/payslip'
 import { supabase } from '../../db/supabase'
 import { useFamily } from '../../context/FamilyContext'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { currentPeriodStart } from '../../utils/dates'
 
 export default function Backup() {
@@ -29,7 +29,7 @@ export default function Backup() {
     setResetting(true)
     setStatus(null)
     try {
-      const members = await getMembers(FAMILY_ID)
+      const members = await getMembers(getFamilyId())
       const memberIds = members.map(m => m.id)
 
       // Delete all transactional data in parallel
@@ -41,13 +41,14 @@ export default function Backup() {
         supabase.from('reward_requests').delete().in('member_id', memberIds),
         supabase.from('member_requests').delete().in('member_id', memberIds),
         // Zero tax fund on the family row
-        supabase.from('families').update({ tax_fund_balance: 0, tax_fund_history: [] }).eq('id', FAMILY_ID),
+        supabase.from('families').update({ tax_fund_balance: 0, tax_fund_history: [] }).eq('id', getFamilyId()),
       ])
 
       // Zero out all wallet balances for child members
       const children = members.filter(m => m.role === 'child')
       await Promise.all(children.map(m =>
         updateMemberAccounts(m.id, {
+          ...m.accounts,
           spending:     0,
           savings:      0,
           philanthropy: 0,
@@ -85,12 +86,12 @@ export default function Backup() {
     setGenProgress('Loading family data...')
     try {
       const [family, allMembers, allChores] = await Promise.all([
-        getFamily(FAMILY_ID),
-        getMembers(FAMILY_ID),
-        getChores(FAMILY_ID),
+        getFamily(getFamilyId()),
+        getMembers(getFamilyId()),
+        getChores(getFamilyId()),
       ])
-      const tier2 = allMembers.filter(m => m.role === 'child')
-      if (!tier2.length) throw new Error('No children found.')
+      const childMembers = allMembers.filter(m => m.role === 'child')
+      if (!childMembers.length) throw new Error('No children found.')
 
       const mandatoryChores = allChores.filter(c => c.isActive && c.type === 'mandatory')
       const bonusChores     = allChores.filter(c => c.isActive && c.type === 'bonus')
@@ -115,7 +116,7 @@ export default function Backup() {
       }
 
       let totalPayslips = 0
-      const rewards = await getRewards(FAMILY_ID)
+      const rewards = await getRewards(getFamilyId())
 
       for (let n = 1; n <= genPeriods; n++) {
         const periodStart = format(subDays(parseISO(cpStart), n * 7), 'yyyy-MM-dd')
@@ -124,7 +125,7 @@ export default function Backup() {
 
         setGenProgress(`Period ${n}/${genPeriods}: ${periodStart} → ${periodEnd}`)
 
-        for (const member of tier2) {
+        for (const member of childMembers) {
           // Random completion rate 70–100%
           const completionRate = 0.70 + Math.random() * 0.30
 
@@ -206,7 +207,7 @@ export default function Backup() {
             const midDay   = format(addDays(parseISO(periodStart), 3), 'yyyy-MM-dd')
             await supabase.from('utility_charges').insert({
               id:          crypto.randomUUID(),
-              family_id:   FAMILY_ID,
+              family_id:   getFamilyId(),
               member_id:   member.id,
               label:       ['WiFi', 'Electricity', 'Water', 'Netflix share'][Math.floor(Math.random() * 4)],
               amount:      utilAmt,
@@ -317,7 +318,7 @@ export default function Backup() {
     setExporting(true)
     setStatus(null)
     try {
-      const data = await exportAllData(FAMILY_ID)
+      const data = await exportAllData(getFamilyId())
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')

@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { DEFAULT_CONFIG, FAMILY_ID } from '../utils/constants'
+import { DEFAULT_CONFIG, getFamilyId() } from '../utils/constants'
 import { hashPin } from '../auth/pinUtils'
 
 /**
@@ -14,12 +14,12 @@ export async function seedFamily() {
   const { count } = await supabase
     .from('members')
     .select('id', { count: 'exact', head: true })
-    .eq('family_id', FAMILY_ID)
+    .eq('family_id', getFamilyId())
 
   if (count > 0) return // Already seeded
 
   // Remove any partial family row from a previous failed seed
-  await supabase.from('families').delete().eq('id', FAMILY_ID)
+  await supabase.from('families').delete().eq('id', getFamilyId())
 
   const [parentPin, sonPin, daughterPin] = await Promise.all([
     hashPin('0000'),
@@ -29,7 +29,7 @@ export async function seedFamily() {
 
   // ── Family ──────────────────────────────────────────────────────
   const { error: famErr } = await supabase.from('families').insert({
-    id:               FAMILY_ID,
+    id:               getFamilyId(),
     name:             "Dev's Family",
     config:           { ...DEFAULT_CONFIG },
     tax_fund_balance: 0,
@@ -41,10 +41,9 @@ export async function seedFamily() {
   const { error: memErr } = await supabase.from('members').insert([
     {
       id:           'member-dev',
-      family_id:    FAMILY_ID,
+      family_id:    getFamilyId(),
       name:         'Dev',
       role:         'parent',
-      tier:         null,
       pin:     parentPin,
       avatar:       '👨',
       base_salary:  0,
@@ -53,10 +52,9 @@ export async function seedFamily() {
     },
     {
       id:           'member-spouse',
-      family_id:    FAMILY_ID,
+      family_id:    getFamilyId(),
       name:         'Spouse',
       role:         'parent',
-      tier:         null,
       pin:     parentPin,
       avatar:       '👩',
       base_salary:  0,
@@ -65,10 +63,9 @@ export async function seedFamily() {
     },
     {
       id:           'member-son',
-      family_id:    FAMILY_ID,
+      family_id:    getFamilyId(),
       name:         'Son',
       role:         'child',
-      tier:         2,
       pin:     sonPin,
       avatar:       '👦',
       base_salary:  200,
@@ -81,10 +78,9 @@ export async function seedFamily() {
     },
     {
       id:           'member-daughter',
-      family_id:    FAMILY_ID,
+      family_id:    getFamilyId(),
       name:         'Daughter',
       role:         'child',
-      tier:         1,
       pin:     daughterPin,
       avatar:       '👧',
       base_salary:  100,
@@ -125,7 +121,7 @@ export async function seedFamily() {
   const mandatoryChores = [
     ...sonMandatory.map((c, i) => ({
       id:            `chore-son-m-${i}`,
-      family_id:     FAMILY_ID,
+      family_id:     getFamilyId(),
       title:         c.title,
       type:          'mandatory',
       value:         0,
@@ -136,7 +132,7 @@ export async function seedFamily() {
     })),
     ...daughterMandatory.map((c, i) => ({
       id:            `chore-daughter-m-${i}`,
-      family_id:     FAMILY_ID,
+      family_id:     getFamilyId(),
       title:         c.title,
       type:          'mandatory',
       value:         0,
@@ -161,7 +157,7 @@ export async function seedFamily() {
     { title: 'Tennis coaching (attended)', value: 10, recurrence: 'weekday', days_per_week: null },
   ].map((c, i) => ({
     id:            `chore-bonus-${i}`,
-    family_id:     FAMILY_ID,
+    family_id:     getFamilyId(),
     title:         c.title,
     type:          'bonus',
     value:         c.value,
@@ -191,7 +187,7 @@ export async function seedFamily() {
     { title: 'Beach Vacation',          cost: 2000, category: 'experience',  emoji: '🏖️' },
   ].map((r, i) => ({
     id:        `reward-${i}`,
-    family_id: FAMILY_ID,
+    family_id: getFamilyId(),
     ...r,
     is_active: true,
   }))

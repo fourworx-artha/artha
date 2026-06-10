@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, AlertCircle, Plus, X, FileText, CheckCircle, ClipboardCheck } from 'lucide-react'
+import { AlertCircle, Plus, X, FileText, CheckCircle, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { displayDate, today } from '../../utils/dates'
 import { runPayslip, settlePayslip } from '../../engine/payslip'
 import { getDueChoresForMember, buildLogMap } from '../../engine/chores'
-import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore } from '../../db/operations'
+import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore, updateFamilyConfig } from '../../db/operations'
+import { getFamilyId } from '../../utils/family'
 import PayslipCard from '../../components/PayslipCard'
 
 // ── Parent Chore Sheet ────────────────────────────────────────────────────────
@@ -380,8 +381,8 @@ function GiveMoneySheet({ child, onDone, onClose }) {
   )
 }
 
-// ── Run / Settle Payslip button ───────────────────────────────────────────────
-function RunPayslipButton({ child, periodEnd, payday, onDone }) {
+// ── Settle Payslip button (run is always automatic) ───────────────────────────
+function RunPayslipButton({ child, periodEnd, payday, onDone, onSettled }) {
   const [phase,       setPhase]       = useState('loading') // loading | run | draft | settled
   const [running,     setRunning]     = useState(false)
   const [draftId,     setDraftId]     = useState(null)
@@ -397,22 +398,6 @@ function RunPayslipButton({ child, periodEnd, payday, onDone }) {
     })
   }, [child.id, periodEnd])
 
-  const handleRun = async () => {
-    setRunning(true)
-    setError(null)
-    try {
-      const result = await runPayslip(child.id)
-      setDraftId(result.id)
-      setPhase('draft')
-      await onDone()
-    } catch (e) {
-      console.error('[Artha] runPayslip error:', e)
-      setError(e.message.includes('already exists') ? 'exists' : e.message)
-    } finally {
-      setRunning(false)
-    }
-  }
-
   const handleSettle = async (payslipId) => {
     setRunning(true)
     setError(null)
@@ -421,6 +406,7 @@ function RunPayslipButton({ child, periodEnd, payday, onDone }) {
       setPhase('settled')
       setShowPayslip(false)
       await onDone()
+      onSettled?.()
     } catch (e) {
       console.error('[Artha] settlePayslip error:', e)
       setError(e.message)
@@ -429,15 +415,10 @@ function RunPayslipButton({ child, periodEnd, payday, onDone }) {
     }
   }
 
-  const canRun = today() >= periodEnd
-
   if (phase === 'loading') return null
-  if (phase === 'run' && !payday) return null
+  if (phase === 'run') return null  // auto-run happens in the parent; nothing to show yet
   if (phase === 'settled') return (
     <span className="text-xs font-mono" style={{ color: 'var(--positive)' }}>✓ Settled</span>
-  )
-  if (error === 'exists') return (
-    <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>Already run</span>
   )
   if (error) return (
     <span className="text-xs font-mono" style={{ color: 'var(--negative)' }} title={error}>
@@ -461,19 +442,7 @@ function RunPayslipButton({ child, periodEnd, payday, onDone }) {
       )}
     </>
   )
-  if (!canRun) return (
-    <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>
-      Payslip from {displayDate(periodEnd)}
-    </span>
-  )
-  return (
-    <button disabled={running} onClick={handleRun}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all active:scale-95"
-      style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.25)', color: 'var(--positive)' }}>
-      <Play size={11} />
-      {running ? 'Running...' : 'Run Payslip'}
-    </button>
-  )
+  return null
 }
 
 // ── Chore completion mini-bars ────────────────────────────────────────────────
@@ -614,24 +583,41 @@ export default function ParentDashboard() {
   const [givingTo,       setGivingTo]       = useState(null)
   const [choreSheetFor,  setChoreSheetFor]  = useState(null)
   const [viewPayslipFor, setViewPayslipFor] = useState(null)
-  const [allRan,          setAllRan]          = useState(false)
-  const [currentDrafts,   setCurrentDrafts]   = useState([]) // drafts for this period
-  const [overdueDrafts,   setOverdueDrafts]   = useState([]) // drafts from past periods
+  const [allRan,               setAllRan]               = useState(false)
+  const [currentDrafts,        setCurrentDrafts]        = useState([]) // drafts for this period
+  const [overdueDrafts,        setOverdueDrafts]        = useState([]) // drafts from past periods
+  const [showAutoSettlePrompt, setShowAutoSettlePrompt] = useState(false)
   const autoRanRef = useRef(false)
 
-  // Auto-payslip: run once on mount if enabled and it's payday
+  // Auto-run always on payday; auto-settle if family.config.autoSettle is true.
+  // First-settle prompt fires when autoSettle is undefined (key not yet set).
   useEffect(() => {
-    if (!family?.config?.autoPayslip || !payday || autoRanRef.current) return
+    if (!payday || autoRanRef.current || !children.length || !family) return
     autoRanRef.current = true
     const autoRun = async () => {
-      if (children.length === 0) return
-      await Promise.allSettled(children.map(c => runPayslip(c.id)))
+      const results = await Promise.allSettled(children.map(c => runPayslip(c.id)))
+      if (family.config?.autoSettle) {
+        const settled = await Promise.allSettled(
+          results.map(r => r.status === 'fulfilled' ? settlePayslip(r.value.id) : Promise.resolve())
+        )
+        // Check first-settle prompt after auto-settle
+        const anySettled = settled.some(r => r.status === 'fulfilled')
+        if (anySettled && family.config.autoSettle === undefined) {
+          setShowAutoSettlePrompt(true)
+        }
+      }
       await reload()
       await refreshBanners()
     }
     autoRun()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [family, payday, children.length])
+
+  const checkFirstSettlePrompt = () => {
+    if (family?.config?.autoSettle === undefined || family?.config?.autoSettle === null) {
+      setShowAutoSettlePrompt(true)
+    }
+  }
 
   const loadChoreStats = useCallback(async () => {
     if (!children.length || !chores.length) return
@@ -753,7 +739,7 @@ export default function ParentDashboard() {
             style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)' }}>
             <AlertCircle size={14} style={{ color: 'var(--positive)', flexShrink: 0 }} />
             <p className="text-xs font-mono" style={{ color: 'var(--positive)' }}>
-              It's payday! Run payslips for each child below. ({periodLabel} end)
+              It's payday! Payslips are being prepared automatically.
             </p>
           </div>
         )}
@@ -838,7 +824,7 @@ export default function ParentDashboard() {
                   title="Mark chores done">
                   <ClipboardCheck size={14} />
                 </button>
-                <RunPayslipButton child={child} periodEnd={periodEnd} payday={payday} onDone={async () => { await reload(); await refreshBanners() }} />
+                <RunPayslipButton child={child} periodEnd={periodEnd} payday={payday} onDone={async () => { await reload(); await refreshBanners() }} onSettled={checkFirstSettlePrompt} />
                 <button
                   onClick={() => setViewPayslipFor(child)}
                   className="p-1.5 rounded-lg transition-all active:scale-95"
@@ -918,6 +904,49 @@ export default function ParentDashboard() {
           child={viewPayslipFor}
           onClose={() => setViewPayslipFor(null)}
         />
+      )}
+
+      {/* First-settle prompt — shown once to set autoSettle preference */}
+      {showAutoSettlePrompt && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end"
+          style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="rounded-t-2xl flex flex-col px-5 py-6 gap-5"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div className="flex justify-center">
+              <div className="w-10 h-1 rounded-full" style={{ background: 'var(--border-bright)' }} />
+            </div>
+            <div>
+              <p className="text-base font-mono font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                🎉 First payslip settled!
+              </p>
+              <p className="text-sm font-mono" style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                Want future payslips to settle automatically on payday? You can still review them afterwards, and change this anytime in Economic Controls.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={async () => {
+                  await updateFamilyConfig(getFamilyId(), { ...family.config, autoSettle: true })
+                  setShowAutoSettlePrompt(false)
+                  await reload()
+                }}
+                className="w-full py-3 rounded-xl text-sm font-mono font-semibold transition-all active:scale-95"
+                style={{ background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: 'var(--positive)' }}>
+                Yes, automate ✓
+              </button>
+              <button
+                onClick={async () => {
+                  await updateFamilyConfig(getFamilyId(), { ...family.config, autoSettle: false })
+                  setShowAutoSettlePrompt(false)
+                  await reload()
+                }}
+                className="w-full py-3 rounded-xl text-sm font-mono font-semibold transition-all active:scale-95"
+                style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                No, I'll settle manually
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

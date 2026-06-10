@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, RefreshCw } from 'lucide-react'
 import { useFamily } from '../../context/FamilyContext'
 import { generateJoinCode } from '../../db/operations'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 const CODE_TTL_SECS = 600 // 10 minutes
 
@@ -42,7 +42,7 @@ export default function InviteCode() {
     setError(null)
     setCode(null)
     try {
-      const result = await generateJoinCode(FAMILY_ID, selectedId)
+      const result = await generateJoinCode(getFamilyId(), selectedId)
       setCode(result.code)
       setExpiresAt(result.expiresAt)
     } catch (e) {

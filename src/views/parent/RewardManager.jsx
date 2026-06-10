@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { Plus, X, Check, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useFamily } from '../../context/FamilyContext'
 import { addReward, updateReward, getAllRewards } from '../../db/operations'
-import { REWARD_CATEGORIES, FAMILY_ID } from '../../utils/constants'
+import { REWARD_CATEGORIES } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { useCurrency } from '../../context/FamilyContext'
 
 // ── Reward form ───────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ function RewardForm({ initial, onSave, onClose }) {
     if (category === 'other' && !customCat.trim()) { setError('Enter a category name'); return }
     setSaving(true)
     const data = {
-      familyId: FAMILY_ID,
+      familyId: getFamilyId(),
       title: title.trim(),
       price: Number(price),
       category: effectiveCategory,
@@ -179,7 +180,7 @@ export default function RewardManager() {
 
   // Load all rewards (including inactive) once
   const loadAll = useCallback(async () => {
-    const all = await getAllRewards(FAMILY_ID)
+    const all = await getAllRewards(getFamilyId())
     all.sort((a, b) => a.price - b.price)
     setAllRewards(all)
   }, [])

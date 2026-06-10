@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { addRewardRequest, getRewardRequests, parentDepositToSavings, addMemberRequest } from '../../db/operations'
-import { REWARD_CATEGORIES, FAMILY_ID } from '../../utils/constants'
+import { REWARD_CATEGORIES } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { ChevronLeft, PiggyBank, Banknote, ShoppingBag } from 'lucide-react'
 
 // ── Buy confirmation sheet ────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ function TransferSheet({ type, spending, memberId, onDone, onClose, fmt }) {
       } else if (type === 'cashout') {
         await addMemberRequest({
           id: crypto.randomUUID(),
-          familyId: FAMILY_ID,
+          familyId: getFamilyId(),
           memberId,
           type: 'cash_withdrawal',
           amount: parsed,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { getPayslips, updateFamilyConfig } from '../../db/operations'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { X, ChevronDown, ChevronUp } from 'lucide-react'
 
 // ── Settle sheet ──────────────────────────────────────────────────────────────
@@ -227,12 +227,11 @@ export default function Expenses() {
   const [settlingFor, setSettlingFor] = useState(null) // { child, unsettled }
 
   const load = useCallback(async () => {
-    const tier2 = children.filter(c => c.tier >= 2)
-    if (!tier2.length) { setLoading(false); return }
+    if (!children.length) { setLoading(false); return }
 
     const settlements = family?.config?.expenseSettlements ?? []
 
-    const results = await Promise.all(tier2.map(async child => {
+    const results = await Promise.all(children.map(async child => {
       const payslips = await getPayslips(child.id)
       const settled  = payslips.filter(p => p.status === 'settled')
 
@@ -282,7 +281,7 @@ export default function Expenses() {
       amounts,
       total:      amounts.rent + amounts.utilities + amounts.tax,
     }
-    await updateFamilyConfig(FAMILY_ID, {
+    await updateFamilyConfig(getFamilyId(), {
       ...family.config,
       expenseSettlements: [...existing, record],
     })

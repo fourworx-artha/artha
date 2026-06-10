@@ -5,7 +5,7 @@ import { updateMemberAccounts, addTransaction, addMemberRequest } from '../../db
 import { roundRupees } from '../../utils/currency'
 import { today } from '../../utils/dates'
 import { Plus, X, Target, Heart } from 'lucide-react'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 // ── New Sub-goal sheet ────────────────────────────────────────────────────────
 function NewGoalSheet({ onSave, onClose }) {
@@ -504,7 +504,7 @@ export default function Goals() {
   const handleDonateRequest = async (amount, charityName) => {
     await addMemberRequest({
       id: crypto.randomUUID(),
-      familyId: FAMILY_ID,
+      familyId: getFamilyId(),
       memberId: currentMember.id,
       type: 'donation',
       amount,
@@ -520,7 +520,7 @@ export default function Goals() {
       : `goal`
     await addMemberRequest({
       id: crypto.randomUUID(),
-      familyId: FAMILY_ID,
+      familyId: getFamilyId(),
       memberId: currentMember.id,
       type: 'subgoal_withdrawal',
       amount,

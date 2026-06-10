@@ -2,14 +2,14 @@ import { parseISO, getDay } from 'date-fns'
 import {
   getMember, getFamily, getChores,
   getChoreLogsForPeriod, getUtilityCharges,
-  addPayslip, updateMemberAccounts, updateTaxFund, addTransaction, updateCreditScore,
-  getPayslipForPeriod, getPayslip, getLatestPayslip, updatePayslipStatus, updatePayslipCreditScore,
+  addPayslip, rpcSettlePayslip,
+  getPayslipForPeriod, getLatestPayslip,
 } from '../db/operations'
 import { roundRupees } from '../utils/currency'
 import { currentPeriodStart, currentPeriodEnd, daysAgo } from '../utils/dates'
 import { calculateWeeklyInterest } from './interest'
 import { calculateStreak } from './chores'
-import { FAMILY_ID } from '../utils/constants'
+import { getFamilyId } from '../utils/family'
 
 // ── Pure calculation ──────────────────────────────────────────────────────────
 
@@ -83,8 +83,12 @@ export function calculatePayslip({
   const adjustedSalary = roundRupees(member.baseSalary * mandatoryCompletionPercent)
 
   // ── 2. Streak bonus ─────────────────────────────────────────────
-  // Consecutive days all mandatory chores approved → bonus on adjusted salary
-  const streakBonusPct = streakDays >= 14 ? 0.15 : streakDays >= 7 ? 0.10 : streakDays >= 3 ? 0.05 : 0
+  // Consecutive days all mandatory chores approved → bonus on adjusted salary.
+  // streakBonusEnabled defaults to true for existing families (backwards compat);
+  // W6 will set it to false for new Starter-stage children via ENGINE_DEFAULTS.
+  const streakBonusEnabled = config.streakBonusEnabled !== false
+  const streakBonusPct = !streakBonusEnabled ? 0
+    : streakDays >= 14 ? 0.15 : streakDays >= 7 ? 0.10 : streakDays >= 3 ? 0.05 : 0
   const streakBonus    = roundRupees(adjustedSalary * streakBonusPct)
 
   // ── 3. Bonus chore earnings (approved during this period, paid out on settle) ─
@@ -291,7 +295,7 @@ export function calculatePayslip({
  */
 export async function runPayslip(memberId, overridePeriod = null) {
   // Load family first so we can derive the correct period from config
-  const family = await getFamily(FAMILY_ID)
+  const family = await getFamily(getFamilyId())
   if (!family) throw new Error('Family not found')
 
   const periodStart = overridePeriod?.start ?? currentPeriodStart(family.config)
@@ -300,7 +304,7 @@ export async function runPayslip(memberId, overridePeriod = null) {
   // ── Load data (60 days of chore logs for streak calculation) ────
   const [member, allChores, choreLogs, utilityCharges, streakLogs] = await Promise.all([
     getMember(memberId),
-    getChores(FAMILY_ID),
+    getChores(getFamilyId()),
     getChoreLogsForPeriod(memberId, periodStart, periodEnd),
     getUtilityCharges(memberId, periodStart, periodEnd),
     getChoreLogsForPeriod(memberId, daysAgo(60), periodEnd),
@@ -344,6 +348,102 @@ export async function runPayslip(memberId, overridePeriod = null) {
     openingSubGoals,
   })
 
+  // ── Pre-compute transactions for atomic RPC settlement ──────────
+  const pendingTransactions = [
+    calc.earnings.adjustedSalary > 0 && {
+      type: 'salary',
+      amount: calc.earnings.adjustedSalary,
+      description: `Salary — ${Math.round(calc.earnings.mandatoryCompletionPercent * 100)}% chore completion${calc.earnings.streakDays >= 3 ? ` · ${calc.earnings.streakDays}d streak` : ''}`,
+      relatedId: null,
+    },
+    calc.earnings.streakBonus > 0 && {
+      type: 'bonus',
+      amount: calc.earnings.streakBonus,
+      description: `Streak bonus (${calc.earnings.streakDays} days · +${Math.round(calc.earnings.streakBonusPct * 100)}%)`,
+      relatedId: null,
+    },
+    ...(calc.earnings.bonusChoreItems ?? []).map(b => ({
+      type: 'bonus',
+      amount: b.value,
+      description: `Bonus chore: ${b.title}`,
+      relatedId: null,
+    })),
+    calc.deductions.tax > 0 && {
+      type: 'tax',
+      amount: -calc.deductions.tax,
+      description: `Tax (${+(calc.deductions.taxRate * 100).toFixed(2)}%)`,
+      relatedId: null,
+    },
+    (calc.deductions.interestTax ?? 0) > 0 && {
+      type: 'tax',
+      amount: -calc.deductions.interestTax,
+      description: `Interest tax (${+(calc.deductions.taxRate * 100).toFixed(2)}%)`,
+      relatedId: null,
+    },
+    calc.deductions.rent > 0 && {
+      type: 'rent',
+      amount: -calc.deductions.rent,
+      description: 'Weekly rent',
+      relatedId: null,
+    },
+    (calc.deductions.recurringUtilities ?? 0) > 0 && {
+      type: 'utility',
+      amount: -(calc.deductions.recurringUtilities),
+      description: 'Recurring utilities',
+      relatedId: null,
+    },
+    ...(calc.deductions.utilities ?? []).map(u => ({
+      type: 'utility',
+      amount: -u.amount,
+      description: u.reason,
+      relatedId: null,
+    })),
+    calc.interestEarned > 0 && {
+      type: 'interest',
+      amount: calc.interestEarned,
+      description: `Savings interest (${+(effectiveConfig.interestRate * 100).toFixed(2)}%/wk)`,
+      relatedId: null,
+    },
+    (calc.allocations?.philanthropy ?? 0) > 0 && {
+      type: 'deposit',
+      amount: calc.allocations.philanthropy,
+      description: 'Philanthropy allocation',
+      relatedId: null,
+    },
+    calc.deductions.loanInterest > 0 && {
+      type: 'loan_interest',
+      amount: calc.deductions.loanInterest,
+      description: `Loan interest (${+(calc.deductions.loanInterestRate * 100).toFixed(2)}%/period)`,
+      relatedId: null,
+    },
+    calc.deductions.loanRepayment > 0 && calc.loanOutstandingAfter > 0 && {
+      type: 'loan_repay',
+      amount: -calc.deductions.loanRepayment,
+      description: `Loan repayment (${calc.loanOutstandingAfter} remaining)`,
+      relatedId: null,
+    },
+    calc.deductions.loanRepayment > 0 && calc.loanOutstandingAfter === 0 && {
+      type: 'loan_cleared',
+      amount: -calc.deductions.loanRepayment,
+      description: 'Final loan repayment — loan fully cleared!',
+      relatedId: null,
+    },
+  ].filter(Boolean)
+
+  // ── Pre-compute credit delta for atomic RPC settlement ───────────
+  let creditDelta = 0
+  if (!calc.earnings.onVacation) {
+    const pct    = calc.earnings.mandatoryCompletionPercent
+    const missed = calc.earnings.missedMandatoryCount ?? 0
+    if (pct >= 1.0)     creditDelta += 10
+    else if (pct < 0.5) creditDelta -= 30
+    else                creditDelta -= missed * 2
+  }
+  if (calc.deductions.loanRepayment > 0) {
+    if (calc.loanOutstandingAfter === 0)                             creditDelta += 5
+    else if (calc.deductions.loanRepayment < loanWeeklyRepay)        creditDelta -= 10
+  }
+
   // ── Save as draft (no balance updates yet) ──────────────────────
   const payslipId = crypto.randomUUID()
   await addPayslip({
@@ -355,6 +455,8 @@ export async function runPayslip(memberId, overridePeriod = null) {
     creditScore: member.creditScore ?? 500,
     createdAt: new Date().toISOString(),
     status: 'draft',
+    pendingTransactions,
+    creditDelta,
   })
 
   return { ...calc, id: payslipId, status: 'draft' }
@@ -363,159 +465,10 @@ export async function runPayslip(memberId, overridePeriod = null) {
 // ── Settle payslip (commits balance updates to DB) ────────────────────────────
 
 /**
- * Settle a draft payslip — updates member accounts, logs transactions,
- * updates tax fund, updates credit score, marks payslip as settled.
- * Throws if payslip not found or already settled.
+ * Settle a draft payslip atomically via Postgres RPC.
+ * All six writes (accounts, tax fund, transactions, credit score, payslip status)
+ * execute in a single transaction. Throws if payslip not found or already settled.
  */
 export async function settlePayslip(payslipId) {
-  const [ps, family] = await Promise.all([
-    getPayslip(payslipId),
-    getFamily(FAMILY_ID),
-  ])
-  if (!ps)                      throw new Error('Payslip not found')
-  if (ps.status === 'settled')  throw new Error('Payslip already settled')
-  if (!family)                  throw new Error('Family not found')
-
-  const member = await getMember(ps.memberId)
-  if (!member) throw new Error('Member not found')
-
-  const loanWeeklyRepay = member.accounts.loan?.weeklyRepayment ?? 0
-
-  // ── Update member accounts ───────────────────────────────────────
-  await updateMemberAccounts(ps.memberId, {
-    ...member.accounts,
-    spending:     ps.balancesAfter.spending,
-    savings:      ps.balancesAfter.savings,
-    philanthropy: ps.balancesAfter.philanthropy ?? (member.accounts.philanthropy ?? 0),
-    subGoals:     ps.balancesAfter.subGoals     ?? (member.accounts.subGoals     ?? []),
-    loan:         ps.balancesAfter.loan,
-  })
-
-  // ── Update tax fund (salary tax + interest tax) ─────────────────
-  const totalTaxCredit = (ps.deductions.tax ?? 0) + (ps.deductions.interestTax ?? 0)
-  if (totalTaxCredit > 0) {
-    const newTaxBalance = (family.taxFundBalance ?? 0) + totalTaxCredit
-    const newTaxHistory = [
-      ...(family.taxFundHistory ?? []),
-      {
-        id: crypto.randomUUID(),
-        memberId: ps.memberId,
-        amount: totalTaxCredit,
-        type: 'credit',
-        description: `Tax — ${member.name} (${ps.periodEnd})`,
-        date: ps.periodEnd,
-      },
-    ]
-    await updateTaxFund(FAMILY_ID, newTaxBalance, newTaxHistory)
-  }
-
-  // ── Log transactions ─────────────────────────────────────────────
-  const txBase = { memberId: ps.memberId, date: ps.periodEnd, relatedId: null }
-  const txs = [
-    ps.earnings.adjustedSalary > 0 && {
-      type: 'salary',
-      amount: ps.earnings.adjustedSalary,
-      description: `Salary — ${Math.round(ps.earnings.mandatoryCompletionPercent * 100)}% chore completion${ps.earnings.streakDays >= 3 ? ` · ${ps.earnings.streakDays}d streak` : ''}`,
-    },
-    ps.earnings.streakBonus > 0 && {
-      type: 'bonus',
-      amount: ps.earnings.streakBonus,
-      description: `Streak bonus (${ps.earnings.streakDays} days · +${Math.round(ps.earnings.streakBonusPct * 100)}%)`,
-    },
-    ...(ps.earnings.bonusChoreItems ?? []).map(b => ({
-      type: 'bonus',
-      amount: b.value,
-      description: `Bonus chore: ${b.title}`,
-    })),
-    ps.deductions.tax > 0 && {
-      type: 'tax',
-      amount: -ps.deductions.tax,
-      description: `Tax (${+(family.config.taxRate * 100).toFixed(2)}%)`,
-    },
-    (ps.deductions.interestTax ?? 0) > 0 && {
-      type: 'tax',
-      amount: -ps.deductions.interestTax,
-      description: `Interest tax (${+(family.config.taxRate * 100).toFixed(2)}%)`,
-    },
-    ps.deductions.rent > 0 && {
-      type: 'rent',
-      amount: -ps.deductions.rent,
-      description: 'Weekly rent',
-    },
-    (ps.deductions.recurringUtilities ?? 0) > 0 && {
-      type: 'utility',
-      amount: -(ps.deductions.recurringUtilities),
-      description: 'Recurring utilities',
-    },
-    ...(ps.deductions.utilities ?? []).map(u => ({
-      type: 'utility',
-      amount: -u.amount,
-      description: u.reason,
-    })),
-    ps.interestEarned > 0 && {
-      type: 'interest',
-      amount: ps.interestEarned,
-      description: `Savings interest (${+(family.config.interestRate * 100).toFixed(2)}%/wk)`,
-    },
-    ps.allocations?.philanthropy > 0 && {
-      type: 'deposit',
-      amount: ps.allocations.philanthropy,
-      description: 'Philanthropy allocation',
-    },
-    ps.deductions.loanInterest > 0 && {
-      type: 'loan_interest',
-      amount: ps.deductions.loanInterest,
-      description: `Loan interest (${+(family.config.loanInterestRate * 100).toFixed(2)}%/period)`,
-    },
-    ps.deductions.loanRepayment > 0 && ps.loanOutstandingAfter > 0 && {
-      type: 'loan_repay',
-      amount: -ps.deductions.loanRepayment,
-      description: `Loan repayment (${ps.loanOutstandingAfter} remaining)`,
-    },
-    ps.deductions.loanRepayment > 0 && ps.loanOutstandingAfter === 0 && {
-      type: 'loan_cleared',
-      amount: -ps.deductions.loanRepayment,
-      description: 'Final loan repayment — loan fully cleared!',
-    },
-  ].filter(Boolean)
-
-  for (const tx of txs) {
-    await addTransaction({ id: crypto.randomUUID(), ...txBase, ...tx })
-  }
-
-  // ── Update credit score ──────────────────────────────────────────
-  let scoreDelta = 0
-  if (!ps.earnings.onVacation) {
-    // Chore-related credit changes only apply when not on vacation
-    const pct    = ps.earnings.mandatoryCompletionPercent
-    const missed = ps.earnings.missedMandatoryCount ?? 0
-    if (pct >= 1.0) {
-      scoreDelta += 10                        // perfect week
-    } else if (pct < 0.5) {
-      scoreDelta -= 30                        // severe — nuclear penalty, no per-chore on top
-    } else {
-      scoreDelta -= missed * 2               // 50–99%: -2 per missed mandatory instance
-    }
-  }
-
-  if (ps.deductions.loanRepayment > 0) {
-    if (ps.loanOutstandingAfter === 0) {
-      scoreDelta += 5
-    } else if (ps.deductions.loanRepayment < loanWeeklyRepay) {
-      scoreDelta -= 10
-    }
-  }
-
-  const currentScore   = member.creditScore ?? 500
-  const settledScore   = Math.min(850, Math.max(300, Math.round(currentScore + scoreDelta)))
-
-  if (scoreDelta !== 0) {
-    await updateCreditScore(ps.memberId, scoreDelta).catch(() => {})
-  }
-
-  // ── Mark settled, writing post-settlement credit score to the payslip ──
-  await Promise.all([
-    updatePayslipStatus(payslipId, 'settled'),
-    updatePayslipCreditScore(payslipId, settledScore),
-  ])
+  return rpcSettlePayslip(payslipId)
 }

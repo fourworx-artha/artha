@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, Pencil, X, Check } from 'lucide-react'
 import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { updateMember, addMember } from '../../db/operations'
 import { hashPin } from '../../auth/pinUtils'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 const CHILD_AVATARS = [
   '👦','👧','🧒','👶','🐒','🐻','🦁','🐯',
@@ -27,7 +27,6 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
   const defaultAvatar = isParent ? '👨' : '👦'
   const [name,       setName]       = useState(member?.name ?? '')
   const [avatar,     setAvatar]     = useState(member?.avatar ?? defaultAvatar)
-  const tier = 2
   const [salary,     setSalary]     = useState(String(member?.baseSalary ?? 0))
   const [newPin,     setNewPin]     = useState('')
   const [goalName,   setGoalName]   = useState(member?.accounts?.goalJar?.name ?? '')
@@ -51,7 +50,6 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
 
       if (!isParent) {
         changes.baseSalary = Number(salary) || 0
-        changes.tier       = tier
       }
 
       if (newPin) {
@@ -61,7 +59,7 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
       if (isNew) {
         if (isParent) {
           await addMember({
-            familyId: FAMILY_ID,
+            familyId: getFamilyId(),
             role: 'parent',
             name: changes.name,
             avatar: changes.avatar,
@@ -74,9 +72,8 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
             : null
 
           await addMember({
-            familyId: FAMILY_ID,
+            familyId: getFamilyId(),
             role: 'child',
-            tier,
             name: changes.name,
             avatar: changes.avatar,
             pin: changes.pin,

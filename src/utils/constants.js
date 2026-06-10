@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG = {
   payPeriod: 'weekly',      // 'weekly' | 'monthly'
   paydayDow: 6,             // weekly payday: 0=Sun 1=Mon … 6=Sat (default Saturday)
   paydayDom: 28,            // monthly payday: 1–28 (clamped to last day of month)
-  autoPayslip: false,       // auto-run payslips on payday when parent opens app
+  autoSettle: false,        // auto-run + settle payslips on payday when parent opens app
   currency: 'INR',
   utilityChargeDefault: 5,
 }
@@ -24,12 +24,6 @@ export const CURRENCIES = {
   CAD: { symbol: 'C$',  name: 'Canadian Dollar',    code: 'CAD' },
 }
 
-export const TIERS = {
-  1: { name: 'Piggy Bank', description: 'Coin jar view only' },
-  2: { name: 'My First Job', description: 'Full payslip & economy' },
-  3: { name: 'Junior Earner', description: 'Phase 2' },
-  4: { name: 'Money Manager', description: 'Phase 2' },
-}
 
 export const CHORE_RECURRENCE = {
   daily:   'Daily',
@@ -64,5 +58,3 @@ export const REWARD_CATEGORIES = {
   material:    { label: 'Material',    emoji: '🎁' },
   custom:      { label: 'Custom',      emoji: '⭐' },
 }
-
-export const FAMILY_ID = 'dev-family-001'

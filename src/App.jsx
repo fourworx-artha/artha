@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { FamilyProvider, useFamily } from './context/FamilyContext'
 import { getPendingLogsForMembers, getPendingMemberRequests, getPendingRewardRequests, getRewardRequests, getDeviceClaim, getOrCreateDeviceId, checkFamilyExists, getLatestPayslip } from './db/operations'
 import { supabase } from './db/supabase'
-import { FAMILY_ID } from './utils/constants'
+import { getFamilyId, setFamilyId } from './utils/family'
 import ParentNav from './components/ParentNav'
 import ChildNav from './components/ChildNav'
 import InstallPrompt from './components/InstallPrompt'
@@ -31,16 +31,16 @@ import InviteCode       from './views/parent/InviteCode'
 import Expenses         from './views/parent/Expenses'
 import Vacation        from './views/parent/Vacation'
 
-// Child Tier 2 views
-import Tier2Home  from './views/child-tier2/Home'
-import Chores     from './views/child-tier2/Chores'
-import Ledger     from './views/child-tier2/Ledger'
-import Savings    from './views/child-tier2/Savings'
-import GoalJar    from './views/child-tier2/GoalJar'
-import FamilyFund from './views/child-tier2/FamilyFund'
-import Rewards    from './views/child-tier2/Rewards'
-import Wallet     from './views/child-tier2/Wallet'
-import History    from './views/child-tier2/History'
+// Child views
+import ChildHome  from './views/child/Home'
+import Chores     from './views/child/Chores'
+import Ledger     from './views/child/Ledger'
+import Savings    from './views/child/Savings'
+import GoalJar    from './views/child/GoalJar'
+import FamilyFund from './views/child/FamilyFund'
+import Rewards    from './views/child/Rewards'
+import Wallet     from './views/child/Wallet'
+import History    from './views/child/History'
 
 
 import { DeviceContext } from './context/DeviceContext'
@@ -74,6 +74,11 @@ function saveClaim(setClaim) {
 //   'ready'      → device is claimed, proceed to app
 function DeviceGate({ children }) {
   const cached = readCachedClaim()
+  // Self-migrate: backfill artha_family_id from cached claim so getFamilyId() works
+  // on devices that claimed before W4 shipped (no localStorage entry yet).
+  if (!localStorage.getItem('artha_family_id') && cached?.family_id) {
+    setFamilyId(cached.family_id)
+  }
   const [screen, setScreen] = useState(cached ? 'ready' : 'checking')
   const [claim,  setClaim]  = useState(cached)
 
@@ -120,12 +125,14 @@ function DeviceGate({ children }) {
     <JoinFamily
       onClaimed={handleClaimed}
       onSkip={async () => {
+        const fid = getFamilyId()
+        if (!fid) return
         const deviceId = getOrCreateDeviceId()
         await supabase.from('device_claims').upsert({
-          device_id: deviceId, family_id: FAMILY_ID,
+          device_id: deviceId, family_id: fid,
           member_id: null, claimed_at: new Date().toISOString(),
         })
-        handleClaimed({ deviceId, familyId: FAMILY_ID, memberId: null })
+        handleClaimed({ deviceId, familyId: fid, memberId: null })
       }}
     />
   )
@@ -178,8 +185,8 @@ function ParentShell() {
   )
 }
 
-// ── Tier 2 child shell ────────────────────────────────────────────────────────
-function Tier2Shell() {
+// ── Child shell ───────────────────────────────────────────────────────────────
+function ChildShell() {
   const { currentMember, refreshMember } = useAuth()
   const { reloadCount } = useFamily()
   const [hasDraftPayslip, setHasDraftPayslip] = useState(false)
@@ -273,9 +280,9 @@ export default function App() {
               <Route path="vacation"       element={<Vacation />} />
             </Route>
 
-            {/* Tier 2+ child routes */}
-            <Route path="/child" element={<Tier2Shell />}>
-              <Route path="home"    element={<Tier2Home />} />
+            {/* Child routes */}
+            <Route path="/child" element={<ChildShell />}>
+              <Route path="home"    element={<ChildHome />} />
               <Route path="chores"  element={<Chores />} />
               <Route path="ledger"  element={<Ledger />} />
               <Route path="payslip" element={<Navigate to="/child/ledger" replace />} />

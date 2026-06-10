@@ -4,7 +4,7 @@ export const db = new Dexie('ArthaDB')
 
 db.version(1).stores({
   families:      '&id, name',
-  members:       '&id, familyId, role, tier',
+  members:       '&id, familyId, role',
   chores:        '&id, familyId, type, isActive, *assignedTo',
   choreLogs:     '&id, choreId, memberId, date, status',
   transactions:  '&id, memberId, type, date',

@@ -10,7 +10,7 @@ import NetWorthChart from '../../components/NetWorthChart'
 import SavingsGrowthChart from '../../components/SavingsGrowthChart'
 import TopRewardsChart from '../../components/TopRewardsChart'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { CreditScoreLineChart } from '../child-tier2/Home'
+import { CreditScoreLineChart } from '../child/Home'
 import { REWARD_CATEGORIES } from '../../utils/constants'
 
 const TYPE_META = {

@@ -4,7 +4,7 @@
  */
 import { db } from './schema'
 import { importAllData, getFamily } from './operations'
-import { FAMILY_ID } from '../utils/constants'
+import { getFamilyId } from '../utils/family'
 
 export async function migrateToSupabase() {
   // Read everything from Dexie

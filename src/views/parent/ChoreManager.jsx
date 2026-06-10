@@ -2,7 +2,8 @@ import { useState, useCallback, useRef } from 'react'
 import { Plus, X, Check, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { addChore, updateChore, toggleChoreActive, updateMember } from '../../db/operations'
-import { CHORE_RECURRENCE, FAMILY_ID } from '../../utils/constants'
+import { CHORE_RECURRENCE } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ function ChoreForm({ type, initial, defaultAssigned, childMembers, onSave, onClo
     }
     setSaving(true)
     const choreData = {
-      familyId: FAMILY_ID,
+      familyId: getFamilyId(),
       title: title.trim(),
       type,
       value: type === 'bonus' ? Number(value) : 0,

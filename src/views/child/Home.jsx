@@ -6,7 +6,7 @@ import { displayDate, today } from '../../utils/dates'
 import { calculatePayslip } from '../../engine/payslip'
 import { getChoreLogsForPeriod, getChores, getUtilityCharges, makeEarlyRepayment, getLatestPayslip, markCreditPopupSeen, getPayslips, addMemberRequest, getTransactions, getTransactionsForPeriod } from '../../db/operations'
 import { calculateStreak } from '../../engine/chores'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { daysAgo } from '../../utils/dates'
 import { ChevronRight, X, Landmark } from 'lucide-react'
 import CreditScorePopup from '../../components/CreditScorePopup'
@@ -313,7 +313,7 @@ function DonateSheet({ philanthropy, memberId, onClose, fmt }) {
     try {
       await addMemberRequest({
         id: crypto.randomUUID(),
-        familyId: FAMILY_ID,
+        familyId: getFamilyId(),
         memberId,
         type: 'donation',
         amount: parsed,
@@ -581,7 +581,7 @@ function CashOutSheet({ spending, memberId, onClose, fmt }) {
     try {
       await addMemberRequest({
         id: crypto.randomUUID(),
-        familyId: FAMILY_ID,
+        familyId: getFamilyId(),
         memberId,
         type: 'cash_withdrawal',
         amount: parsed,
@@ -713,7 +713,7 @@ function CashOutSheet({ spending, memberId, onClose, fmt }) {
   )
 }
 
-export default function Tier2Home() {
+export default function ChildHome() {
   const { currentMember, refreshMember } = useAuth()
   const { family } = useFamily()
   const navigate = useNavigate()
@@ -776,7 +776,7 @@ export default function Tier2Home() {
     if (!currentMember || !family) return
     try {
       const [allChores, choreLogs, utilityCharges, streakLogs] = await Promise.all([
-        getChores(FAMILY_ID),
+        getChores(getFamilyId()),
         getChoreLogsForPeriod(currentMember.id, progressPeriodStart, progressPeriodEnd),
         getUtilityCharges(currentMember.id, progressPeriodStart, progressPeriodEnd),
         getChoreLogsForPeriod(currentMember.id, daysAgo(60), progressPeriodEnd),

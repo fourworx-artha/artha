@@ -4,7 +4,7 @@ import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { updateTaxFund, updateFamilyConfig, getPendingTaxGoalVotes, approveTaxGoalVote, resolveMemberRequest } from '../../db/operations'
 import { roundRupees } from '../../utils/currency'
 import { displayDateFull, today } from '../../utils/dates'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 function Thermometer({ balance, goal }) {
   if (!goal || goal <= 0) return null
@@ -80,14 +80,14 @@ export default function TaxFund() {
 
   // Load pending child votes
   useEffect(() => {
-    getPendingTaxGoalVotes(FAMILY_ID).then(setVotes).catch(() => {})
+    getPendingTaxGoalVotes(getFamilyId()).then(setVotes).catch(() => {})
   }, [])
 
   const handleSaveGoal = async () => {
     const g = roundRupees(Number(goalInput))
     if (isNaN(g) || g < 0) return
     setSavingGoal(true)
-    await updateFamilyConfig(FAMILY_ID, { ...config, taxFundGoal: g, taxFundGoalLabel: goalLabel.trim() })
+    await updateFamilyConfig(getFamilyId(), { ...config, taxFundGoal: g, taxFundGoalLabel: goalLabel.trim() })
     await reload()
     setEditingGoal(false)
     setSavingGoal(false)
@@ -96,7 +96,7 @@ export default function TaxFund() {
   const handleDeleteGoal = async () => {
     setDeletingGoal(true)
     const { taxFundGoal: _g, taxFundGoalLabel: _l, ...rest } = config
-    await updateFamilyConfig(FAMILY_ID, rest)
+    await updateFamilyConfig(getFamilyId(), rest)
     await reload()
     setDeletingGoal(false)
   }
@@ -104,7 +104,7 @@ export default function TaxFund() {
   const handleApproveVote = async (vote) => {
     setActingVote(vote.id)
     try {
-      await approveTaxGoalVote(vote.id, FAMILY_ID, vote.description, vote.amount, config)
+      await approveTaxGoalVote(vote.id, getFamilyId(), vote.description, vote.amount, config)
       await reload()
       setVotes([])
     } catch (e) { alert(e.message) }
@@ -137,7 +137,7 @@ export default function TaxFund() {
       date: today(),
     }
     await updateTaxFund(
-      FAMILY_ID,
+      getFamilyId(),
       balance - amt,
       [...(family.taxFundHistory ?? []), entry]
     )

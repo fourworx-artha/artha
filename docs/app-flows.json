@@ -1,0 +1,1521 @@
+{
+  "meta": {
+    "version": "1.0",
+    "generated": "2026-05-12",
+    "description": "Complete user flow documentation for the Artha household economy PWA",
+    "total_flows": 35
+  },
+  "categories": [
+    "App Initialization",
+    "Authentication",
+    "Device Management",
+    "Chore Management",
+    "Payslip Engine",
+    "Reward Store",
+    "Financial Operations",
+    "Tax Fund",
+    "Economic Controls",
+    "Member Management",
+    "Backup & Restore",
+    "Credit Score",
+    "Realtime Sync"
+  ],
+  "flows": [
+    {
+      "id": "INIT-001",
+      "name": "App startup — brand-new install (no family)",
+      "category": "App Initialization",
+      "trigger": "User opens the PWA for the first time on a device with no family in the database",
+      "steps": [
+        {
+          "step": 1,
+          "description": "React mounts App component. BrowserRouter and FamilyProvider wrap the tree.",
+          "files": ["src/main.jsx", "src/App.jsx", "src/context/FamilyContext.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "FamilyProvider calls loadFamily() on mount. Fetches family, members, chores, rewards from Supabase. All return empty; sets loading=false.",
+          "files": ["src/context/FamilyContext.jsx", "src/db/operations.js", "src/db/supabase.js"],
+          "functions": ["loadFamily()", "getFamily()", "getMembers()", "getChores()", "getRewards()"],
+          "db_tables": ["families", "members", "chores", "rewards"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "DeviceGate reads localStorage('artha_device_claim') — null. Runs getDeviceClaim() + checkFamilyExists() in parallel.",
+          "files": ["src/App.jsx", "src/db/operations.js"],
+          "functions": ["readCachedClaim()", "getDeviceClaim()", "checkFamilyExists()"],
+          "db_tables": ["device_claims", "families"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "checkFamilyExists() returns false. DeviceGate sets screen='onboarding'. Renders <Onboarding />.",
+          "files": ["src/App.jsx", "src/views/onboarding/Onboarding.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "Supabase unavailable: loadFamily() catches error, app still shows onboarding (DeviceGate catches error → sets screen='join')",
+        "Family row exists but no device claim: routes to JoinFamily instead of Onboarding"
+      ],
+      "failure_points": ["VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing → all DB calls fail silently"]
+    },
+    {
+      "id": "INIT-002",
+      "name": "App startup — returning device with cached claim",
+      "category": "App Initialization",
+      "trigger": "User opens the PWA on a device that has previously claimed a family membership",
+      "steps": [
+        {
+          "step": 1,
+          "description": "DeviceGate calls readCachedClaim() synchronously — reads localStorage('artha_device_claim'). Returns claim object.",
+          "files": ["src/App.jsx"],
+          "functions": ["readCachedClaim()"]
+        },
+        {
+          "step": 2,
+          "description": "Claim found. DeviceGate sets screen='ready' immediately (no async check). DeviceContext.Provider wraps tree with claim value.",
+          "files": ["src/App.jsx", "src/context/DeviceContext.jsx"]
+        },
+        {
+          "step": 3,
+          "description": "FamilyProvider loadFamily() runs in parallel — loads family data from Supabase.",
+          "files": ["src/context/FamilyContext.jsx", "src/db/operations.js"],
+          "functions": ["loadFamily()"],
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "AuthProvider mounts. Reads localStorage('artha_member_id'). If found, calls getMember() to restore session.",
+          "files": ["src/context/AuthContext.jsx", "src/db/operations.js"],
+          "functions": ["getMember()"],
+          "db_tables": ["members"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "If no saved member ID: renders PinAuth. If member restored: navigates to /parent or /child/home based on role.",
+          "files": ["src/auth/PinAuth.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "Cached claim JSON is corrupt: readCachedClaim() returns null, falls through to async check",
+        "Member ID in localStorage but member deleted from DB: getMember() returns null, session not restored, shows PinAuth"
+      ],
+      "failure_points": ["localStorage cleared by browser: device must be reclaimed"]
+    },
+    {
+      "id": "INIT-003",
+      "name": "Family creation (Onboarding)",
+      "category": "App Initialization",
+      "trigger": "First-time parent completes the 4-step onboarding wizard",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Parent fills in family name (step 0), selects role/avatar (step 1), enters name (step 2), sets and confirms 4-digit PIN (step 3).",
+          "files": ["src/views/onboarding/Onboarding.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "On final step submit: hashPin(rawPin) called via Web Crypto SHA-256 with 'artha:' salt prefix.",
+          "files": ["src/auth/pinUtils.js"],
+          "functions": ["hashPin()"]
+        },
+        {
+          "step": 3,
+          "description": "createFamily({ familyName, memberName, avatar, pinHash }) called. Inserts families row (with FAMILY_ID constant and DEFAULT_CONFIG), then inserts first parent member row. Auto-claims this device as the founding parent device (upserts device_claims).",
+          "files": ["src/db/operations.js", "src/utils/constants.js"],
+          "functions": ["createFamily()", "getOrCreateDeviceId()"],
+          "db_tables": ["families", "members", "device_claims"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "createFamily() returns { memberId, deviceId }. Onboarding calls onComplete(claim). DeviceGate saves claim to localStorage and sets screen='ready'. FamilyContext reloads.",
+          "files": ["src/views/onboarding/Onboarding.jsx", "src/App.jsx", "src/context/FamilyContext.jsx"]
+        },
+        {
+          "step": 5,
+          "description": "App shows PinAuth. Parent selects their avatar and enters PIN to log in for the first time.",
+          "files": ["src/auth/PinAuth.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "PIN confirmation mismatch: Onboarding shows error, does not submit",
+        "Supabase insert fails: error displayed inline, family row may be partially created. Seed checks member count > 0 before inserting, so retry is safe."
+      ],
+      "failure_points": ["FAMILY_ID hardcoded as 'dev-family-001' — second family creation would overwrite the first"]
+    },
+    {
+      "id": "AUTH-001",
+      "name": "PIN login",
+      "category": "Authentication",
+      "trigger": "User selects their avatar on PinAuth and enters 4-digit PIN",
+      "steps": [
+        {
+          "step": 1,
+          "description": "PinAuth mounts. If device claim has a memberId, useEffect auto-selects that member from the members list.",
+          "files": ["src/auth/PinAuth.jsx"],
+          "functions": ["useDevice()"]
+        },
+        {
+          "step": 2,
+          "description": "User selects avatar (or it's pre-selected). AvatarGrid renders all members filtered by device claim.",
+          "files": ["src/auth/PinAuth.jsx"]
+        },
+        {
+          "step": 3,
+          "description": "User enters 4 digits. On 4th digit: handleSubmit() fires automatically. Calls login(memberId, rawPin) from AuthContext.",
+          "files": ["src/auth/PinAuth.jsx", "src/context/AuthContext.jsx"],
+          "functions": ["login()"]
+        },
+        {
+          "step": 4,
+          "description": "login() fetches the member from Supabase via getMember(), then calls verifyPin(rawPin, member.pin). verifyPin re-hashes and compares.",
+          "files": ["src/context/AuthContext.jsx", "src/db/operations.js", "src/auth/pinUtils.js"],
+          "functions": ["getMember()", "verifyPin()", "hashPin()"],
+          "db_tables": ["members"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "PIN correct: login() sets currentMember in AuthContext state, writes member.id to localStorage('artha_member_id'). Returns true.",
+          "files": ["src/context/AuthContext.jsx"]
+        },
+        {
+          "step": 6,
+          "description": "PinAuth calls navigate('/parent') for parents or navigate('/child/home') for children.",
+          "files": ["src/auth/PinAuth.jsx"]
+        },
+        {
+          "step": 7,
+          "description": "ParentShell or ChildShell renders. Checks currentMember.role — redirects to '/' if role mismatch.",
+          "files": ["src/App.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "Wrong PIN: login() returns false. PinAuth clears pin state, shows 'Wrong PIN' error.",
+        "Member not found (deleted after device claim): shows 'Member not found' error.",
+        "Device claimed to specific member: other members not shown in avatar grid"
+      ],
+      "failure_points": ["Supabase offline during PIN verification: getMember() throws, login() catches and shows 'Something went wrong'"]
+    },
+    {
+      "id": "AUTH-002",
+      "name": "Logout",
+      "category": "Authentication",
+      "trigger": "User taps the logout button (available in parent More screen or child settings)",
+      "steps": [
+        {
+          "step": 1,
+          "description": "logout() called from AuthContext. Sets currentMember = null, removes localStorage('artha_member_id').",
+          "files": ["src/context/AuthContext.jsx"],
+          "functions": ["logout()"]
+        },
+        {
+          "step": 2,
+          "description": "ParentShell or ChildShell detects currentMember is null, navigates to '/' (PinAuth).",
+          "files": ["src/App.jsx"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "DEV-001",
+      "name": "New device claims family via invite code",
+      "category": "Device Management",
+      "trigger": "User on a new device opens the app and enters a 6-character invite code on JoinFamily screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "DeviceGate checks device_claims table — no row for this device_id. Family exists. DeviceGate sets screen='join'. Renders <JoinFamily />.",
+          "files": ["src/App.jsx", "src/views/auth/JoinFamily.jsx"],
+          "functions": ["getDeviceClaim()", "checkFamilyExists()"],
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "User types 6-char code. JoinFamily calls claimDevice(code).",
+          "files": ["src/views/auth/JoinFamily.jsx", "src/db/operations.js"],
+          "functions": ["claimDevice()"]
+        },
+        {
+          "step": 3,
+          "description": "claimDevice() fetches the join_codes row. Validates: row exists, used_at is null, expires_at has not passed.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["join_codes"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "Marks join code as used (sets used_at = now). Upserts device_claims row: device_id → family_id + member_id.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["join_codes", "device_claims"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "Returns { familyId, memberId }. JoinFamily passes claim to DeviceGate via onClaimed(). DeviceGate writes claim to localStorage and sets screen='ready'.",
+          "files": ["src/views/auth/JoinFamily.jsx", "src/App.jsx"]
+        },
+        {
+          "step": 6,
+          "description": "PinAuth renders. For a child device: device claim has memberId, so that member is auto-selected.",
+          "files": ["src/auth/PinAuth.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "Code not found: claimDevice() throws 'Invalid code'",
+        "Code already used: throws 'Code already used'",
+        "Code expired (10-min TTL): throws 'Code expired'",
+        "Parent bypass link: skips code entry, creates claim with member_id=null, sees all members on PinAuth"
+      ],
+      "failure_points": ["Device_id UUID not yet in localStorage: getOrCreateDeviceId() creates it on first call"]
+    },
+    {
+      "id": "DEV-002",
+      "name": "Parent generates invite code for a child",
+      "category": "Device Management",
+      "trigger": "Parent opens More → Invite Code, selects a member, taps 'Generate'",
+      "steps": [
+        {
+          "step": 1,
+          "description": "InviteCode view renders. Parent selects a member from the list.",
+          "files": ["src/views/parent/InviteCode.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "Parent taps Generate. generateJoinCode(familyId, memberId) called. Creates a random 6-char alphanumeric code (Math.random().toString(36).slice(2,8).toUpperCase()). Sets expires_at = now + 10 minutes.",
+          "files": ["src/db/operations.js"],
+          "functions": ["generateJoinCode()"],
+          "db_tables": ["join_codes"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Code and expiresAt returned. InviteCode displays the code in large format with a live countdown bar. Parent reads code to child verbally or shares it.",
+          "files": ["src/views/parent/InviteCode.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "Code collision (two codes identical): Supabase primary key constraint would throw. Extremely unlikely but possible."
+      ],
+      "failure_points": ["Code is only 6 chars — small entropy space, but 10-min TTL + single-use mitigates brute-force risk"]
+    },
+    {
+      "id": "CHORE-001",
+      "name": "Child marks a mandatory chore done",
+      "category": "Chore Management",
+      "trigger": "Child taps 'Done' button on a mandatory chore in the Chores screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Chores screen loads. getDueChoresForMember() filters allChores by isActive, type='mandatory', assignedTo includes memberId, and isDueToday(recurrence).",
+          "files": ["src/views/child/Chores.jsx", "src/engine/chores.js"],
+          "functions": ["getDueChoresForMember()", "isDueToday()"]
+        },
+        {
+          "step": 2,
+          "description": "getChoreLogsForDate(memberId, today()) fetches today's existing logs. buildLogMap() creates a choreId→log lookup.",
+          "files": ["src/views/child/Chores.jsx", "src/db/operations.js", "src/engine/chores.js"],
+          "functions": ["getChoreLogsForDate()", "buildLogMap()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Child taps 'Done'. handleMark(chore) calls addChoreLog({ choreId, memberId, date }). Inserts a new chore_logs row with status='pending'.",
+          "files": ["src/views/child/Chores.jsx", "src/db/operations.js"],
+          "functions": ["addChoreLog()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "loadLogs() re-fetches today's logs. MandatoryRow now shows Clock icon + 'waiting' status. Done button disappears.",
+          "files": ["src/views/child/Chores.jsx"]
+        },
+        {
+          "step": 5,
+          "description": "Supabase Realtime fires 'chore_logs' change. FamilyContext.loadFamily() runs. reloadCount increments. ParentShell re-queries pending logs. Parent Approve tab badge increments.",
+          "files": ["src/context/FamilyContext.jsx", "src/App.jsx"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Chore already has a pending log: Done button is hidden (canMark = false when status is pending or approved)",
+        "Rejected log: Done button reappears (canMark = true for rejected status), child can re-submit"
+      ],
+      "failure_points": ["No guard against submitting twice before first insert completes — marking state prevents UI double-tap but not race conditions"]
+    },
+    {
+      "id": "CHORE-002",
+      "name": "Child claims a bonus chore",
+      "category": "Chore Management",
+      "trigger": "Child taps 'Claim' on a bonus chore in the Chores screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "getAvailableBonusChores() returns all active bonus chores assigned to this member (or with empty assignedTo). Bonus chores are always visible regardless of recurrence.",
+          "files": ["src/views/child/Chores.jsx", "src/engine/chores.js"],
+          "functions": ["getAvailableBonusChores()"]
+        },
+        {
+          "step": 2,
+          "description": "Child taps Claim. handleClaim(chore) calls addChoreLog(). Inserts chore_logs row with status='pending'.",
+          "files": ["src/views/child/Chores.jsx", "src/db/operations.js"],
+          "functions": ["addChoreLog()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "BonusRow updates to show 'Submitted' state. Parent sees it in the Approve queue.",
+          "files": ["src/views/child/Chores.jsx"]
+        },
+        {
+          "step": 4,
+          "description": "When parent approves: approveBonusChoreLog() sets status='approved'. Bonus earnings are NOT credited immediately — they are collected during runPayslip() at payslip time.",
+          "files": ["src/db/operations.js", "src/engine/payslip.js"],
+          "functions": ["approveBonusChoreLog()"]
+        }
+      ],
+      "edge_cases": [
+        "Bonus chore approved after period ends but before payslip runs: included in the payslip for that period as long as the log date falls within the period dates"
+      ],
+      "failure_points": ["Bonus earnings silently ignored if chore_logs aren't fetched for the correct date range in runPayslip"]
+    },
+    {
+      "id": "CHORE-003",
+      "name": "Parent approves a chore log",
+      "category": "Chore Management",
+      "trigger": "Parent taps the green checkmark on a pending chore log in the Approve screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "ApproveChores loads. getPendingLogsForMembers(childIds), getPendingRewardRequests(childIds), getPendingMemberRequests(childIds) fetched in parallel.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"],
+          "functions": ["getPendingLogsForMembers()", "getPendingRewardRequests()", "getPendingMemberRequests()"],
+          "db_tables": ["chore_logs", "reward_requests", "member_requests"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Parent taps approve. approveChore(log) called. For mandatory chores: approveChoreLog(log.id) updates status='approved', approved_at=now in chore_logs.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"],
+          "functions": ["approveChoreLog()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "updateCreditScore(memberId, +2) called (fire-and-forget). Fetches member, increments credit_score by 2 (clamped to 300–850), writes back.",
+          "files": ["src/db/operations.js"],
+          "functions": ["updateCreditScore()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "Log removed from local state. Realtime fires. FamilyContext reloads. Child Chores screen updates to show CheckCircle.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/context/FamilyContext.jsx"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Credit score update fails silently (fire-and-forget catch): chore is still approved, only score update is lost",
+        "Approve All: loops through logs sequentially, each awaits the previous"
+      ],
+      "failure_points": ["No transaction wrapping: if approveChoreLog succeeds but updateCreditScore fails, chore is approved but score not updated"]
+    },
+    {
+      "id": "CHORE-004",
+      "name": "Parent rejects a chore log",
+      "category": "Chore Management",
+      "trigger": "Parent taps the red X on a pending chore log in the Approve screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "rejectChore(log) called. rejectChoreLog(log.id) updates status='rejected' in chore_logs.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"],
+          "functions": ["rejectChoreLog()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "updateCreditScore(memberId, -5) called. Child loses 5 credit points.",
+          "files": ["src/db/operations.js"],
+          "functions": ["updateCreditScore()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Log removed from UI queue. Child Chores screen shows XCircle + 'rejected — try again'. Done button reappears, child can re-submit.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/views/child/Chores.jsx"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "PAY-001",
+      "name": "Parent runs a payslip (creates draft)",
+      "category": "Payslip Engine",
+      "trigger": "Parent taps 'Run Payslip' button on a child card in the Dashboard on or after payday",
+      "steps": [
+        {
+          "step": 1,
+          "description": "runPayslip(memberId) called from Dashboard. Fetches family config to determine period dates.",
+          "files": ["src/views/parent/Dashboard.jsx", "src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["runPayslip()", "getFamily()"],
+          "db_tables": ["families"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Parallel fetch: getMember(), getChores(), getChoreLogsForPeriod(periodStart, periodEnd), getUtilityCharges(periodStart, periodEnd), getChoreLogsForPeriod(daysAgo(60), periodEnd) for streak.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["getMember()", "getChores()", "getChoreLogsForPeriod()", "getUtilityCharges()"],
+          "db_tables": ["members", "chores", "chore_logs", "utility_charges"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Guard: getPayslipForPeriod() checks if a payslip already exists for this period_end. Throws if one exists.",
+          "files": ["src/engine/payslip.js"],
+          "functions": ["getPayslipForPeriod()"],
+          "db_tables": ["payslips"],
+          "db_operation": "read"
+        },
+        {
+          "step": 4,
+          "description": "getLatestPayslip() fetches the previous settled payslip to get openingSavings and openingSubGoals for interest calculation.",
+          "files": ["src/engine/payslip.js"],
+          "functions": ["getLatestPayslip()"],
+          "db_tables": ["payslips"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "calculateStreak(streakLogs, mandatoryChores) run. Counts consecutive days going back from yesterday where all due mandatory chores were approved.",
+          "files": ["src/engine/chores.js"],
+          "functions": ["calculateStreak()"]
+        },
+        {
+          "step": 6,
+          "description": "calculatePayslip() called (pure, no DB). Computes: chore completion %, adjustedSalary, streakBonus, bonusChoreEarnings, gross, tax, rent, utilities, net, savingsAlloc, philanthropyAlloc, spending, loanInterest, loanRepayment, interest on savings+subGoals, new balances, missedMandatoryCount, bonusPotential.",
+          "files": ["src/engine/payslip.js", "src/engine/interest.js"],
+          "functions": ["calculatePayslip()", "calculateWeeklyInterest()"]
+        },
+        {
+          "step": 7,
+          "description": "addPayslip() saves the result as a new row with status='draft'. Member accounts NOT modified at this point.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["addPayslip()"],
+          "db_tables": ["payslips"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 8,
+          "description": "Realtime fires. Dashboard shows draft payslip card. Child sees amber 'draft' banner on Home and amber badge on Ledger tab.",
+          "files": ["src/views/parent/Dashboard.jsx", "src/views/child/Home.jsx", "src/App.jsx"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Payslip already exists for this period: throws, Dashboard shows error toast",
+        "Vacation (paid): adjustedSalary = baseSalary, no chore effect, normal deductions",
+        "Vacation (unpaid): gross = 0, rent/utilities waived, interest still accrues",
+        "First payslip ever: openingSavings falls back to current balance"
+      ],
+      "failure_points": [
+        "Period boundary bug: if currentPeriodEnd() returns wrong date, payslip covers wrong chores",
+        "Streak logs fetched from 60 days ago — timezone offset could cause off-by-one"
+      ]
+    },
+    {
+      "id": "PAY-002",
+      "name": "Parent settles a payslip",
+      "category": "Payslip Engine",
+      "trigger": "Parent taps 'Settle' on a draft payslip card in the Dashboard or Ledger",
+      "steps": [
+        {
+          "step": 1,
+          "description": "settlePayslip(payslipId) called. Fetches payslip row and family row in parallel.",
+          "files": ["src/views/parent/Dashboard.jsx", "src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["settlePayslip()", "getPayslip()", "getFamily()"],
+          "db_tables": ["payslips", "families"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Guard: throws if payslip not found or already settled.",
+          "files": ["src/engine/payslip.js"]
+        },
+        {
+          "step": 3,
+          "description": "getMember() fetches fresh member data (not from cache).",
+          "files": ["src/engine/payslip.js"],
+          "db_tables": ["members"],
+          "db_operation": "read"
+        },
+        {
+          "step": 4,
+          "description": "updateMemberAccounts() writes the payslip's balancesAfter (spending, savings, philanthropy, subGoals, loan) to the member row. This is the critical balance update — overwrites the entire accounts JSON.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["updateMemberAccounts()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "updateTaxFund() adds (salary tax + interest tax) to family.tax_fund_balance and appends a history entry.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["updateTaxFund()"],
+          "db_tables": ["families"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 6,
+          "description": "addTransaction() called for each line item: salary, streak bonus, bonus chores (individual), tax, interest tax, rent, recurring utilities, ad-hoc utilities, savings interest, philanthropy allocation, loan interest, loan repayment/cleared. Sequential loop.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["addTransaction()"],
+          "db_tables": ["transactions"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 7,
+          "description": "Credit score delta computed: +10 for 100% completion, -30 for <50%, -2×missed for 50-99%. Loan repayment: +5 on-time, +20 if fully cleared (handled separately in makeEarlyRepayment for manual; auto-repay logic is in calculatePayslip). updateCreditScore(delta) called.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["updateCreditScore()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 8,
+          "description": "updatePayslipStatus(payslipId, 'settled') and updatePayslipCreditScore(payslipId, settledScore) called in parallel. Writes settled credit score back to the payslip row for accurate historical charting.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"],
+          "functions": ["updatePayslipStatus()", "updatePayslipCreditScore()"],
+          "db_tables": ["payslips"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 9,
+          "description": "Realtime fires. Dashboard refreshes. Child Home shows updated balances. Credit score updates.",
+          "files": ["src/context/FamilyContext.jsx"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Vacation (unpaid): chore-related credit changes skipped entirely. Rent/utilities not deducted.",
+        "Loan outstanding = 0: no loan lines logged",
+        "scoreDelta = 0: updateCreditScore not called"
+      ],
+      "failure_points": [
+        "Sequential transaction writes: if one addTransaction() fails mid-loop, balances are already updated but some transactions are missing",
+        "No DB transaction wrapping — partial settlement is possible on network error"
+      ]
+    },
+    {
+      "id": "REW-001",
+      "name": "Child requests a reward",
+      "category": "Reward Store",
+      "trigger": "Child taps a reward card, reviews the confirm sheet, taps 'Request'",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Rewards screen loads. rewards from FamilyContext (already loaded). getRewardRequests(memberId) fetches child's own request history to show pending counts per reward.",
+          "files": ["src/views/child/Rewards.jsx", "src/db/operations.js"],
+          "functions": ["getRewardRequests()"],
+          "db_tables": ["reward_requests"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Child taps reward card. BuySheet shows: reward emoji/title/price, current spending balance, affordability check, 'parent must approve' notice.",
+          "files": ["src/views/child/Rewards.jsx"]
+        },
+        {
+          "step": 3,
+          "description": "Child taps Request. addRewardRequest({ memberId, rewardId, rewardTitle, amount }) inserts into reward_requests with status='pending'. Child's spending balance NOT deducted yet.",
+          "files": ["src/views/child/Rewards.jsx", "src/db/operations.js"],
+          "functions": ["addRewardRequest()"],
+          "db_tables": ["reward_requests"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "loadRequests() re-fetches requests. RewardCard shows amber 'N pending' badge. BuySheet closes.",
+          "files": ["src/views/child/Rewards.jsx"]
+        },
+        {
+          "step": 5,
+          "description": "Realtime fires reward_requests change. FamilyContext reloads. ParentShell re-queries pending counts. Parent Approve badge increments.",
+          "files": ["src/context/FamilyContext.jsx", "src/App.jsx"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Cannot afford: Request button disabled, BuySheet still opens to show the gap",
+        "Multiple pending: child can submit same reward multiple times — pendingCountMap tracks count"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "REW-002",
+      "name": "Parent approves a reward request",
+      "category": "Reward Store",
+      "trigger": "Parent taps the green checkmark on a reward request in the Approve screen",
+      "steps": [
+        {
+          "step": 1,
+          "description": "approveReward(req) called. Calls approveRewardRequest(requestId, memberId, amount).",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"],
+          "functions": ["approveRewardRequest()"]
+        },
+        {
+          "step": 2,
+          "description": "approveRewardRequest() fetches fresh member data. Checks spending >= amount. Throws 'Insufficient balance' if not.",
+          "files": ["src/db/operations.js"],
+          "functions": ["getMember()"],
+          "db_tables": ["members"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Updates reward_requests row to status='approved', resolved_at=now.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["reward_requests"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "updateMemberAccounts() deducts amount from spending balance.",
+          "files": ["src/db/operations.js"],
+          "functions": ["updateMemberAccounts()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 5,
+          "description": "addTransaction() logs a 'reward' type transaction with negative amount.",
+          "files": ["src/db/operations.js"],
+          "functions": ["addTransaction()"],
+          "db_tables": ["transactions"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 6,
+          "description": "Realtime fires. ChildShell polls getRewardRequests() on next reloadCount tick. Detects newly approved request not in seenRewardIds set. Shows green toast: '🎉 [Reward] approved!' for 4 seconds.",
+          "files": ["src/App.jsx", "src/db/operations.js"],
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Insufficient balance: alert() shown to parent, request stays pending",
+        "Reward deleted from catalog: rewardTitle is stored as snapshot on the request row, so display still works"
+      ],
+      "failure_points": [
+        "updateMemberAccounts succeeds but addTransaction fails: balance deducted without a transaction log"
+      ]
+    },
+    {
+      "id": "REW-003",
+      "name": "Parent buys reward directly for child (no request queue)",
+      "category": "Reward Store",
+      "trigger": "Parent opens ChildDetail, taps 'Buy Reward', selects a reward, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "BuyRewardScreen overlay opens. Shows category filter tabs and 2-column reward grid with wallet before/after preview.",
+          "files": ["src/views/parent/ChildDetail.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "Parent selects reward and confirms. parentBuyReward(memberId, rewardId, rewardTitle, amount) called directly.",
+          "files": ["src/views/parent/ChildDetail.jsx", "src/db/operations.js"],
+          "functions": ["parentBuyReward()"]
+        },
+        {
+          "step": 3,
+          "description": "parentBuyReward() fetches member, checks spending >= amount, deducts via updateMemberAccounts(), logs 'reward' transaction.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["members", "transactions"],
+          "db_operation": "update/write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "BuyRewardScreen closes. Realtime fires, balance updates on all devices.",
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Disabled state when insufficient funds: button shows 'Need ₹X more' and is non-interactive"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-001",
+      "name": "Child saves spending to savings account",
+      "category": "Financial Operations",
+      "trigger": "Child opens Wallet, taps 'Save', enters amount, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Wallet screen. Child taps Save button. parentDepositToSavings(memberId, amount) called (named 'parent' historically but callable from child wallet directly).",
+          "files": ["src/views/child/Wallet.jsx", "src/db/operations.js"],
+          "functions": ["parentDepositToSavings()"]
+        },
+        {
+          "step": 2,
+          "description": "Checks spending >= amount. updateMemberAccounts() moves amount from spending to savings. Two addTransaction() calls: one debit from spending, one credit to savings.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["members", "transactions"],
+          "db_operation": "update/write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Realtime fires. Child Home and Savings screen update balances.",
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-002",
+      "name": "Child requests cash/bank withdrawal from spending",
+      "category": "Financial Operations",
+      "trigger": "Child opens Wallet, taps 'Cash / Bank out', fills form, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "CashOutSheet opens. Child selects destination (Physical Cash or Bank Transfer), enters amount and optional note.",
+          "files": ["src/views/child/Home.jsx", "src/views/child/Wallet.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "addMemberRequest({ type: 'cash_withdrawal', memberId, familyId, amount, metadata: { destination, note } }) inserts into member_requests. Balance NOT deducted.",
+          "files": ["src/db/operations.js"],
+          "functions": ["addMemberRequest()"],
+          "db_tables": ["member_requests"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Realtime fires. Parent Approve badge increments.",
+          "external_services": ["Supabase Realtime"]
+        },
+        {
+          "step": 4,
+          "description": "Parent approves: approveSpendingWithdrawal(requestId, memberId, amount, destination). Deducts from spending, logs withdrawal transaction, resolves request.",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"],
+          "functions": ["approveSpendingWithdrawal()"],
+          "db_tables": ["members", "transactions", "member_requests"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [
+        "Parent denies: resolveMemberRequest(id, 'denied') called. Balance untouched."
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-003",
+      "name": "Child creates a sub-goal and deposits to it",
+      "category": "Financial Operations",
+      "trigger": "Child opens GoalJar, taps '+', fills in goal name and target, saves; then taps 'Deposit'",
+      "steps": [
+        {
+          "step": 1,
+          "description": "NewGoalSheet: child enters name and target. onSave creates a { id: crypto.randomUUID(), name, target, balance: 0 } object.",
+          "files": ["src/views/child/GoalJar.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "updateMemberAccounts() appends the new goal to member.accounts.subGoals array and writes the whole accounts object.",
+          "files": ["src/views/child/GoalJar.jsx", "src/db/operations.js"],
+          "functions": ["updateMemberAccounts()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Child taps Deposit on a goal. DepositSheet opens. Child enters amount (capped at spending balance and remaining goal space).",
+          "files": ["src/views/child/GoalJar.jsx"]
+        },
+        {
+          "step": 4,
+          "description": "parentDepositToSubGoal(memberId, subGoalId, amount): deducts from spending, adds to goal.balance in accounts.subGoals array, logs deposit transaction.",
+          "files": ["src/views/child/GoalJar.jsx", "src/db/operations.js"],
+          "functions": ["parentDepositToSubGoal()"],
+          "db_tables": ["members", "transactions"],
+          "db_operation": "update/write",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [
+        "Deposit capped at target-balance: cannot over-fund a sub-goal",
+        "Goal reached: 'Goal reached!' badge shown, no more deposit button"
+      ],
+      "failure_points": [
+        "updateMemberAccounts overwrites full accounts JSON — if subGoals array is assembled incorrectly, other goals could be lost"
+      ]
+    },
+    {
+      "id": "FIN-004",
+      "name": "Child donates from philanthropy",
+      "category": "Financial Operations",
+      "trigger": "Child opens GoalJar, taps 'Donate', enters charity name and amount, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Child fills in donation form. addMemberRequest({ type: 'donation', amount, description: charityName }) inserts into member_requests.",
+          "files": ["src/views/child/GoalJar.jsx", "src/db/operations.js"],
+          "functions": ["addMemberRequest()"],
+          "db_tables": ["member_requests"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Parent opens Approve screen. Sees donation request under 'PHILANTHROPY REQUESTS' section. Philanthropy balance shown.",
+          "files": ["src/views/parent/ApproveChores.jsx"]
+        },
+        {
+          "step": 3,
+          "description": "Parent approves: approveDonation(requestId, memberId, amount, charityName). performDonation() deducts from philanthropy balance via updateMemberAccounts(), logs 'withdrawal' transaction with 'Donation to [charity]' description.",
+          "files": ["src/db/operations.js"],
+          "functions": ["approveDonation()", "performDonation()"],
+          "db_tables": ["members", "transactions", "member_requests"],
+          "db_operation": "update/write",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [
+        "Insufficient philanthropy balance: canAfford check in ApproveChores disables approve button",
+        "Parent can also donate directly via ChildDetail screen: parentDonate() — no request queue"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-005",
+      "name": "Parent gives a loan to a child",
+      "category": "Financial Operations",
+      "trigger": "Parent opens Dashboard, opens child sheet, taps 'Give Loan', fills form, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Parent enters loan amount, weekly repayment amount, and optional interest-free toggle.",
+          "files": ["src/views/parent/Dashboard.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "giveLoan(memberId, amount, weeklyRepayment, interestFree) called. Fetches member, adds amount to spending, sets accounts.loan = { outstanding, weeklyRepayment, interestFree }.",
+          "files": ["src/db/operations.js"],
+          "functions": ["giveLoan()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "addTransaction() logs 'loan_credit' with positive amount.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["transactions"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "At each subsequent payslip: calculatePayslip() applies loan interest (unless interestFree), then deducts min(weeklyRepay, outstanding, spending) from spending and reduces outstanding. settlePayslip() writes updated loan balance and logs loan_interest + loan_repay transactions.",
+          "files": ["src/engine/payslip.js"]
+        }
+      ],
+      "edge_cases": [
+        "Existing loan: outstanding is added to (not replaced), weeklyRepayment takes max of existing and new",
+        "Spending insufficient to cover full repayment: repayment = min(weeklyRepay, outstanding, spending)"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-006",
+      "name": "Parent gives a one-off bonus to a child",
+      "category": "Financial Operations",
+      "trigger": "Parent opens Dashboard child sheet, taps 'Give Money', enters amount and reason",
+      "steps": [
+        {
+          "step": 1,
+          "description": "giveBonus(memberId, amount, reason) called. Fetches member, adds amount to spending, logs 'parent_bonus' transaction.",
+          "files": ["src/views/parent/Dashboard.jsx", "src/db/operations.js"],
+          "functions": ["giveBonus()"],
+          "db_tables": ["members", "transactions"],
+          "db_operation": "update/write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Realtime fires. Child spending balance updates immediately.",
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "FIN-007",
+      "name": "Early loan repayment",
+      "category": "Financial Operations",
+      "trigger": "Parent opens Loans screen for a child, enters an early repayment amount, confirms",
+      "steps": [
+        {
+          "step": 1,
+          "description": "makeEarlyRepayment(memberId, amount) called. Validates loan exists and spending >= amount.",
+          "files": ["src/views/parent/Loans.jsx", "src/db/operations.js"],
+          "functions": ["makeEarlyRepayment()"],
+          "db_tables": ["members"],
+          "db_operation": "read"
+        },
+        {
+          "step": 2,
+          "description": "actual = min(amount, loan.outstanding, spending). updateMemberAccounts(): deducts from spending, reduces/clears loan. If fully cleared: loan = null.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "addTransaction(): 'loan_repay' or 'loan_cleared' type. updateCreditScore(): +20 if cleared, +5 if partial.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["transactions", "members"],
+          "db_operation": "write/update",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "TAX-001",
+      "name": "Child votes for a tax fund goal",
+      "category": "Tax Fund",
+      "trigger": "Child opens FamilyFund screen, fills in a goal description and amount, taps 'Submit Vote'",
+      "steps": [
+        {
+          "step": 1,
+          "description": "addTaxGoalVote(memberId, familyId, description, amount) called. First cancels any existing pending vote from this member.",
+          "files": ["src/views/child/FamilyFund.jsx", "src/db/operations.js"],
+          "functions": ["addTaxGoalVote()"],
+          "db_tables": ["member_requests"],
+          "db_operation": "write/update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Inserts new member_requests row with type='tax_goal_vote', status='pending'.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["member_requests"],
+          "db_operation": "write"
+        },
+        {
+          "step": 3,
+          "description": "Parent opens Approve screen (or TaxFund screen). Sees pending votes. approveTaxGoalVote(requestId, familyId, description, amount, currentConfig) called.",
+          "files": ["src/views/parent/TaxFund.jsx", "src/db/operations.js"],
+          "functions": ["approveTaxGoalVote()"]
+        },
+        {
+          "step": 4,
+          "description": "updateFamilyConfig() sets taxFundGoal and taxFundGoalLabel. Cancels all other pending votes from the family. Approves this request.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["families", "member_requests"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [
+        "Only one vote per child active at a time: submitting a new vote cancels the previous one"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "ECO-001",
+      "name": "Parent updates economic controls",
+      "category": "Economic Controls",
+      "trigger": "Parent opens More → Economic Controls, changes settings, taps Save",
+      "steps": [
+        {
+          "step": 1,
+          "description": "EconomicControls screen loads family config. Simple mode shows: tax, rent, auto-save. Advanced mode adds: utilities, interest rates, philanthropy, payday schedule, per-child overrides.",
+          "files": ["src/views/parent/EconomicControls.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "Parent edits values and taps Save. updateFamilyConfig(familyId, newConfig) writes the merged config object.",
+          "files": ["src/views/parent/EconomicControls.jsx", "src/db/operations.js"],
+          "functions": ["updateFamilyConfig()"],
+          "db_tables": ["families"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "For per-child overrides: updateMemberConfig(memberId, overrideConfig) writes to members.config column.",
+          "files": ["src/db/operations.js"],
+          "functions": ["updateMemberConfig()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "Realtime fires. FamilyContext reloads. New config takes effect on next payslip run. usePeriod() hook re-derives period dates if payday schedule changed.",
+          "external_services": ["Supabase Realtime"]
+        }
+      ],
+      "edge_cases": [
+        "Simple mode save preserves advanced fields (merge, not replace)",
+        "Loan interest rate must be >= savings interest rate — validated in UI"
+      ],
+      "failure_points": ["Saving in Simple mode: advanced fields must be preserved via merge or they'll be zeroed"]
+    },
+    {
+      "id": "VACA-001",
+      "name": "Parent puts a child on vacation",
+      "category": "Economic Controls",
+      "trigger": "Parent opens More → Vacation Mode, toggles a child's vacation status, selects paid/unpaid",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Vacation screen shows per-child cards with ON/OFF toggle and paid/unpaid radio.",
+          "files": ["src/views/parent/Vacation.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "setMemberVacation(memberId, { active, paidLeave, startDate }) called. Merges vacation field into member.config and writes via updateMemberConfig().",
+          "files": ["src/views/parent/Vacation.jsx", "src/db/operations.js"],
+          "functions": ["setMemberVacation()", "updateMemberConfig()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Realtime fires. Child Home shows blue vacation banner. Chores screen shows slim vacation notice. Next payslip uses vacation flags from member.config.",
+          "external_services": ["Supabase Realtime"]
+        },
+        {
+          "step": 4,
+          "description": "At payslip time: calculatePayslip() reads member.config.vacation. Paid leave: full salary, no chore effect. Unpaid: gross=0, rent/utilities waived. Credit score changes for chores are skipped.",
+          "files": ["src/engine/payslip.js"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "MEM-001",
+      "name": "Parent adds a new child member",
+      "category": "Member Management",
+      "trigger": "Parent opens More → Members, taps '+ Child', fills form, saves",
+      "steps": [
+        {
+          "step": 1,
+          "description": "MemberSheet renders for isNew=true, isParent=false. Fields: name, avatar picker, salary, goal jar (optional), PIN.",
+          "files": ["src/views/parent/Members.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "hashPin(rawPin) called. addMember({ familyId, role:'child', name, avatar, pin, baseSalary, accounts: { spending:0, savings:0, goalJar }, creditScore:500 }) inserts into members.",
+          "files": ["src/views/parent/Members.jsx", "src/db/operations.js", "src/auth/pinUtils.js"],
+          "functions": ["addMember()", "hashPin()"],
+          "db_tables": ["members"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "reload() called. FamilyContext re-fetches members. New child appears in Dashboard and PIN auth grid.",
+          "files": ["src/context/FamilyContext.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "PIN must be exactly 4 digits — validated before submit",
+        "Goal jar is optional: if omitted, goalJar = null in accounts"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "MEM-002",
+      "name": "Parent edits a member",
+      "category": "Member Management",
+      "trigger": "Parent opens Members screen, taps the pencil icon on a member card",
+      "steps": [
+        {
+          "step": 1,
+          "description": "MemberSheet opens pre-filled with current values. Parent can change name, avatar, salary (children), PIN, goal jar.",
+          "files": ["src/views/parent/Members.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "updateMember(id, changes) called with only changed fields. Handles camelCase→snake_case mapping internally.",
+          "files": ["src/views/parent/Members.jsx", "src/db/operations.js"],
+          "functions": ["updateMember()"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "If PIN changed: hashPin() called first, new hash stored.",
+          "files": ["src/auth/pinUtils.js"]
+        }
+      ],
+      "edge_cases": [
+        "Salary change takes effect at next payslip (baseSalary read fresh at runPayslip time)",
+        "Goal jar edit preserves existing balance (only name/target updated)"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "UTIL-001",
+      "name": "Parent logs a utility charge",
+      "category": "Economic Controls",
+      "trigger": "Parent opens More → Utilities, enters a charge for one or more children, taps Save",
+      "steps": [
+        {
+          "step": 1,
+          "description": "UtilityLogger shows children list with amount inputs. Parent enters per-child amounts and a reason.",
+          "files": ["src/views/parent/UtilityLogger.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "addUtilityCharge({ memberId, date: today(), reason, amount }) called for each child with a non-zero amount.",
+          "files": ["src/db/operations.js"],
+          "functions": ["addUtilityCharge()"],
+          "db_tables": ["utility_charges"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "At next payslip: getUtilityCharges(memberId, periodStart, periodEnd) fetches these rows. calculatePayslip() includes them as individual deduction line items in payslip.deductions.utilities.",
+          "files": ["src/engine/payslip.js"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": []
+    },
+    {
+      "id": "CHORE-005",
+      "name": "Parent manages chores (create/edit/delete)",
+      "category": "Chore Management",
+      "trigger": "Parent opens Chores tab, taps 'Mandatory' or 'Bonus ⚡' to add, or taps a chore to edit",
+      "steps": [
+        {
+          "step": 1,
+          "description": "ChoreManager renders child-first tab layout. All/per-child tabs. EarningsSummary card shows base salary and completion count. ChoreForm bottom sheet opens for create or edit.",
+          "files": ["src/views/parent/ChoreManager.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "Create: addChore({ familyId, title, type, recurrence, daysPerWeek, value, assignedTo, isActive:true }) inserts into chores.",
+          "files": ["src/db/operations.js"],
+          "functions": ["addChore()"],
+          "db_tables": ["chores"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Edit: updateChore(id, changes) writes only changed fields.",
+          "files": ["src/db/operations.js"],
+          "functions": ["updateChore()"],
+          "db_tables": ["chores"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "Delete (soft): toggleChoreActive(id, true) sets is_active=false. Chore disappears from child view but chore_logs remain intact.",
+          "files": ["src/db/operations.js"],
+          "functions": ["toggleChoreActive()"],
+          "db_tables": ["chores"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [
+        "defaultAssigned prop: when creating from a child's tab, that child is pre-assigned",
+        "Custom recurrence: daysPerWeek field used for frequency calculation in payslip engine"
+      ],
+      "failure_points": []
+    },
+    {
+      "id": "BAK-001",
+      "name": "Parent exports all data",
+      "category": "Backup & Restore",
+      "trigger": "Parent opens More → Backup, taps 'Export JSON'",
+      "steps": [
+        {
+          "step": 1,
+          "description": "exportAllData(familyId) called. Nine parallel Supabase queries fetch all rows from families, members, chores, chore_logs, transactions, rewards, payslips, utility_charges, reward_requests.",
+          "files": ["src/views/parent/Backup.jsx", "src/db/operations.js"],
+          "functions": ["exportAllData()"],
+          "db_tables": ["families", "members", "chores", "chore_logs", "transactions", "rewards", "payslips", "utility_charges", "reward_requests"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "Result mapped through row mappers. JSON.stringify'd and offered as a download via a temporary <a> element with data URL.",
+          "files": ["src/views/parent/Backup.jsx"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": ["Large datasets may hit browser memory limits for data URL approach"]
+    },
+    {
+      "id": "BAK-002",
+      "name": "Parent imports (restores) data from backup",
+      "category": "Backup & Restore",
+      "trigger": "Parent opens Backup, selects a JSON file, confirms the destructive restore dialog",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Parent picks a .json file. FileReader reads it. JSON.parse'd. importAllData(data) called.",
+          "files": ["src/views/parent/Backup.jsx", "src/db/operations.js"],
+          "functions": ["importAllData()"]
+        },
+        {
+          "step": 2,
+          "description": "Delete phase: chore_logs, transactions, payslips, utility_charges, reward_requests deleted by member_id. Then chores, rewards deleted by family_id. Then members, families deleted. Order matters for FK-like dependencies.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["chore_logs", "transactions", "payslips", "utility_charges", "reward_requests", "chores", "rewards", "members", "families"],
+          "db_operation": "delete",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "Re-insert phase: families, members, chores, rewards, chore_logs, transactions, payslips, utility_charges, reward_requests inserted in order.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["families", "members", "chores", "rewards", "chore_logs", "transactions", "payslips", "utility_charges", "reward_requests"],
+          "db_operation": "write",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "FamilyContext reloads. App reflects restored state.",
+          "files": ["src/context/FamilyContext.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "No confirmation after file selection: destructive operation fires immediately on selection"
+      ],
+      "failure_points": [
+        "Malformed JSON: JSON.parse throws, caught by try/catch",
+        "Network failure mid-restore: partial wipe with partial re-insert, DB in inconsistent state",
+        "Schema version mismatch: payslip timestamps use msToISO conversion to handle older backups"
+      ]
+    },
+    {
+      "id": "BAK-003",
+      "name": "Reset all history and wallets (dev tool)",
+      "category": "Backup & Restore",
+      "trigger": "Parent opens Backup, taps 'Reset All History & Wallets', confirms the two-step confirmation",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Two-step confirm: first tap shows red warning. Second tap fires the reset.",
+          "files": ["src/views/parent/Backup.jsx"]
+        },
+        {
+          "step": 2,
+          "description": "Parallel deletes: chore_logs, transactions, payslips, utility_charges, reward_requests, member_requests (all by member_id).",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["chore_logs", "transactions", "payslips", "utility_charges", "reward_requests", "member_requests"],
+          "db_operation": "delete",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "All children: updateMemberAccounts() zeros spending, savings, philanthropy, zeros subGoal balances. updateCreditScore() resets to 500.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["members"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 4,
+          "description": "updateTaxFund(FAMILY_ID, 0, []) zeros the tax fund balance and history.",
+          "files": ["src/db/operations.js"],
+          "db_tables": ["families"],
+          "db_operation": "update",
+          "external_services": ["Supabase"]
+        }
+      ],
+      "edge_cases": [],
+      "failure_points": ["Non-transactional: parallel deletes may partially succeed if network drops mid-way"]
+    },
+    {
+      "id": "REAL-001",
+      "name": "Realtime data sync across devices",
+      "category": "Realtime Sync",
+      "trigger": "Any write operation on a watched Supabase table from any device",
+      "steps": [
+        {
+          "step": 1,
+          "description": "FamilyContext subscribes to 7 Supabase Realtime channels on mount: families, members, chores, rewards, chore_logs, payslips, reward_requests. Any INSERT/UPDATE/DELETE on these tables fires the callback.",
+          "files": ["src/context/FamilyContext.jsx"],
+          "external_services": ["Supabase Realtime"]
+        },
+        {
+          "step": 2,
+          "description": "loadFamily() runs. Re-fetches all 4 datasets (family, members, chores, rewards). Increments reloadCount.",
+          "files": ["src/context/FamilyContext.jsx", "src/db/operations.js"]
+        },
+        {
+          "step": 3,
+          "description": "All views subscribed to reloadCount via useFamily() automatically re-render with fresh data.",
+          "files": ["src/context/FamilyContext.jsx"]
+        },
+        {
+          "step": 4,
+          "description": "ChildShell (Tier2Shell) also calls refreshMember() and checkDraft() on each reloadCount tick, and polls getRewardRequests() to detect newly approved rewards for toast notification.",
+          "files": ["src/App.jsx", "src/db/operations.js"]
+        }
+      ],
+      "edge_cases": [
+        "Realtime connection drops silently: data goes stale. No auto-reconnect logic beyond Supabase client defaults.",
+        "Rapid changes: loadFamily() may fire multiple times in quick succession — all fetches are identical idempotent reads"
+      ],
+      "failure_points": [
+        "Supabase free tier: Realtime may have connection limits",
+        "Tables without Replication enabled won't fire Realtime events — verify in Supabase dashboard"
+      ]
+    },
+    {
+      "id": "SCORE-001",
+      "name": "Credit score full lifecycle",
+      "category": "Credit Score",
+      "trigger": "Various chore and payslip events throughout the week",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Initial score: 500 when member created. Range: 300–850 (clamped at every update).",
+          "files": ["src/db/operations.js"]
+        },
+        {
+          "step": 2,
+          "description": "Chore approved: +2. Chore rejected: -5. Both immediate (fire-and-forget) via updateCreditScore().",
+          "files": ["src/views/parent/ApproveChores.jsx", "src/db/operations.js"]
+        },
+        {
+          "step": 3,
+          "description": "Payslip settled: +10 for 100% completion, -30 for <50%, -2×missed for 50-99%. Vacation: no change. Loan fully cleared: +20 bonus at early repayment; +5 for on-time scheduled repayment.",
+          "files": ["src/engine/payslip.js"]
+        },
+        {
+          "step": 4,
+          "description": "Post-settlement score written back to the payslip row via updatePayslipCreditScore(). This is what the historical chart reads — not the member.credit_score which reflects the live value.",
+          "files": ["src/engine/payslip.js", "src/db/operations.js"]
+        },
+        {
+          "step": 5,
+          "description": "CreditScorePopup shown once per period when the score changes. markCreditPopupSeen() writes periodEnd to member.last_credit_popup_period to suppress repeat.",
+          "files": ["src/views/child/Home.jsx", "src/db/operations.js"],
+          "functions": ["markCreditPopupSeen()"]
+        }
+      ],
+      "edge_cases": [
+        "Pending chore logs count as 'done' for credit purposes — parent approval delay doesn't penalise child",
+        "Credit popup suppressed until next period once seen"
+      ],
+      "failure_points": [
+        "If updateCreditScore (delta) and updatePayslipCreditScore (absolute) disagree, live score and historical chart diverge"
+      ]
+    },
+    {
+      "id": "DASH-001",
+      "name": "Parent dashboard renders child cards and detects overdue drafts",
+      "category": "App Initialization",
+      "trigger": "Parent navigates to the Dashboard (default route after login)",
+      "steps": [
+        {
+          "step": 1,
+          "description": "Dashboard mounts. children from FamilyContext (already loaded). For each child: today's chore logs fetched via getChoreLogsForDate().",
+          "files": ["src/views/parent/Dashboard.jsx", "src/db/operations.js"],
+          "functions": ["getChoreLogsForDate()"],
+          "db_tables": ["chore_logs"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 2,
+          "description": "getOverdueDrafts(childIds, currentPeriodEnd) fetches payslips with status='draft' and period_end < today. Shows amber banner for each overdue draft.",
+          "files": ["src/views/parent/Dashboard.jsx", "src/db/operations.js"],
+          "functions": ["getOverdueDrafts()"],
+          "db_tables": ["payslips"],
+          "db_operation": "read",
+          "external_services": ["Supabase"]
+        },
+        {
+          "step": 3,
+          "description": "For children: getPayslipForPeriod() checks current period. If no payslip and today is payday (or autoPayslip=true): Run Payslip button shown.",
+          "files": ["src/views/parent/Dashboard.jsx"],
+          "functions": ["getPayslipForPeriod()"]
+        },
+        {
+          "step": 4,
+          "description": "Child cards rendered: avatar, name, credit score chip (coloured by band), spending/savings balances, today's chore progress bar (approved/due count).",
+          "files": ["src/views/parent/Dashboard.jsx"]
+        }
+      ],
+      "edge_cases": [
+        "isPayday() checks paydayDow (weekly) or paydayDom (monthly, clamped to last day of month)",
+        "autoPayslip = true: runPayslip() fires automatically on mount if today is payday and no payslip exists"
+      ],
+      "failure_points": []
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useFamily, useCurrency } from '../../context/FamilyContext'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 import { displayDateFull } from '../../utils/dates'
 import { ChevronLeft, Landmark, Target, Vote } from 'lucide-react'
 import {
@@ -113,7 +113,7 @@ export default function FamilyFund() {
     if (!currentMember) return
     Promise.all([
       getTaxTransactions(currentMember.id),
-      getPendingTaxGoalVotes(FAMILY_ID),
+      getPendingTaxGoalVotes(getFamilyId()),
     ]).then(([txs, votes]) => {
       setTaxTxs(txs)
       setMyVote(votes.find(v => v.memberId === currentMember.id) ?? null)
@@ -136,8 +136,8 @@ export default function FamilyFund() {
     setSubmitting(true)
     setVoteError('')
     try {
-      await addTaxGoalVote(currentMember.id, FAMILY_ID, goalDesc.trim(), amt)
-      const votes = await getPendingTaxGoalVotes(FAMILY_ID)
+      await addTaxGoalVote(currentMember.id, getFamilyId(), goalDesc.trim(), amt)
+      const votes = await getPendingTaxGoalVotes(getFamilyId())
       setMyVote(votes.find(v => v.memberId === currentMember.id) ?? null)
       setGoalDesc('')
       setGoalAmount('')

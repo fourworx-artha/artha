@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  test: {
+    environment: 'node',
+  },
   build: {
     chunkSizeWarningLimit: 900, // Recharts is large; acceptable for prototype
   },

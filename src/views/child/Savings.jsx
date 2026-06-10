@@ -6,7 +6,7 @@ import { getPayslips, addMemberRequest, transferSavingsToWallet } from '../../db
 import { shortDate, today } from '../../utils/dates'
 import { projectSavingsGrowth } from '../../engine/interest'
 import { X } from 'lucide-react'
-import { FAMILY_ID } from '../../utils/constants'
+import { getFamilyId } from '../../utils/family'
 
 const CustomTooltip = ({ active, payload }) => {
   const fmt = useCurrency()
@@ -48,7 +48,7 @@ function SavingsWithdrawSheet({ savings, memberId, onClose, onDone, fmt }) {
       } else {
         await addMemberRequest({
           id: crypto.randomUUID(),
-          familyId: FAMILY_ID,
+          familyId: getFamilyId(),
           memberId,
           type: 'savings_withdrawal',
           amount: parsed,
