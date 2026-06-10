@@ -202,7 +202,10 @@ export async function updateMember(id, changes) {
   if ('role' in changes)       row.role         = changes.role
   if ('pin' in changes)        row.pin     = changes.pin
   if ('baseSalary' in changes) row.base_salary  = changes.baseSalary
-  if ('accounts' in changes)   row.accounts     = changes.accounts
+  if ('accounts' in changes) {
+    validateAccounts(changes.accounts)
+    row.accounts = changes.accounts
+  }
   if ('config' in changes)     row.config       = changes.config
   if ('creditScore' in changes) row.credit_score = changes.creditScore
   if ('lastCreditPopupPeriod' in changes) row.last_credit_popup_period = changes.lastCreditPopupPeriod
@@ -1154,7 +1157,7 @@ export async function exportAllData(familyId) {
   const [
     familyRes, membersRes, choresRes, choreLogsRes,
     transactionsRes, rewardsRes, payslipsRes,
-    utilityChargesRes, rewardRequestsRes,
+    utilityChargesRes, rewardRequestsRes, memberRequestsRes,
   ] = await Promise.all([
     supabase.from('families').select('*').eq('id', familyId),
     supabase.from('members').select('*').eq('family_id', familyId),
@@ -1180,11 +1183,12 @@ export async function exportAllData(familyId) {
       'member_id',
       (await supabase.from('members').select('id').eq('family_id', familyId)).data?.map(m => m.id) ?? []
     ),
+    supabase.from('member_requests').select('*').eq('family_id', familyId),
   ])
 
   return {
     exportedAt: new Date().toISOString(),
-    version: 3,
+    version: 4,
     families:       (familyRes.data ?? []).map(mapFamily),
     members:        (membersRes.data ?? []).map(mapMember),
     chores:         (choresRes.data ?? []).map(mapChore),
@@ -1194,6 +1198,7 @@ export async function exportAllData(familyId) {
     payslips:       (payslipsRes.data ?? []).map(mapPayslip),
     utilityCharges: (utilityChargesRes.data ?? []).map(mapUtilityCharge),
     rewardRequests: (rewardRequestsRes.data ?? []).map(mapRewardRequest),
+    memberRequests: (memberRequestsRes.data ?? []).map(mapMemberRequest),
   }
 }
 
@@ -1212,6 +1217,7 @@ export async function importAllData(data) {
       supabase.from('payslips').delete().in('member_id', memberIds),
       supabase.from('utility_charges').delete().in('member_id', memberIds),
       supabase.from('reward_requests').delete().in('member_id', memberIds),
+      supabase.from('member_requests').delete().eq('family_id', familyId),
     ])
   }
   await supabase.from('chores').delete().eq('family_id', familyId)
@@ -1269,7 +1275,8 @@ export async function importAllData(data) {
       family_id: r.familyId,
       title:     r.title,
       category:  r.category,
-      cost:      r.cost,
+      // exports are mapped rows (cost → price); r.cost only in pre-v4 backups
+      cost:      r.price ?? r.cost ?? 0,
       is_active: r.isActive ?? true,
       emoji:     r.emoji ?? null,
     }))
@@ -1311,6 +1318,10 @@ export async function importAllData(data) {
         balances_after: p.balancesAfter,
         credit_score: p.creditScore,
         created_at: msToISO(p.createdAt),
+        status: p.status ?? 'settled',
+        bonus_potential: p.bonusPotential ?? 0,
+        pending_transactions: p.pendingTransactions ?? [],
+        credit_delta: p.creditDelta ?? 0,
       }))
     ))
   }
@@ -1327,6 +1338,16 @@ export async function importAllData(data) {
       data.rewardRequests.map(r => ({
         id: r.id, member_id: r.memberId, reward_id: r.rewardId,
         reward_title: r.rewardTitle, amount: r.amount, status: r.status,
+        requested_at: r.requestedAt ?? null, resolved_at: r.resolvedAt ?? null,
+      }))
+    ))
+  }
+  if ((data.memberRequests ?? []).length) {
+    throwIfError(await supabase.from('member_requests').insert(
+      data.memberRequests.map(r => ({
+        id: r.id, family_id: r.familyId, member_id: r.memberId,
+        type: r.type, status: r.status, amount: r.amount,
+        description: r.description, metadata: r.metadata ?? null,
         requested_at: r.requestedAt ?? null, resolved_at: r.resolvedAt ?? null,
       }))
     ))

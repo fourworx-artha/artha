@@ -43,7 +43,7 @@ export async function seedFamily() {
       pin:     parentPin,
       avatar:       '👨',
       base_salary:  0,
-      accounts:     { spending: 0, savings: 0, goalJar: null },
+      accounts:     { spending: 0, savings: 0, philanthropy: 0, subGoals: [], loan: null, goalJar: null },
       credit_score: 500,
     },
     {
@@ -54,7 +54,7 @@ export async function seedFamily() {
       pin:     parentPin,
       avatar:       '👩',
       base_salary:  0,
-      accounts:     { spending: 0, savings: 0, goalJar: null },
+      accounts:     { spending: 0, savings: 0, philanthropy: 0, subGoals: [], loan: null, goalJar: null },
       credit_score: 500,
     },
     {
@@ -68,6 +68,9 @@ export async function seedFamily() {
       accounts:     {
         spending: 0,
         savings:  0,
+        philanthropy: 0,
+        subGoals: [],
+        loan:     null,
         goalJar:  { name: 'Lego Set', target: 700, balance: 0 },
       },
       credit_score: 500,
@@ -83,6 +86,9 @@ export async function seedFamily() {
       accounts:     {
         spending: 0,
         savings:  0,
+        philanthropy: 0,
+        subGoals: [],
+        loan:     null,
         goalJar:  { name: 'Doll House', target: 500, balance: 0 },
       },
       credit_score: 500,

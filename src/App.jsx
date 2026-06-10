@@ -76,8 +76,8 @@ function DeviceGate({ children }) {
   const cached = readCachedClaim()
   // Self-migrate: backfill artha_family_id from cached claim so getFamilyId() works
   // on devices that claimed before W4 shipped (no localStorage entry yet).
-  if (!localStorage.getItem('artha_family_id') && cached?.family_id) {
-    setFamilyId(cached.family_id)
+  if (!localStorage.getItem('artha_family_id') && cached?.familyId) {
+    setFamilyId(cached.familyId)
   }
   const [screen, setScreen] = useState(cached ? 'ready' : 'checking')
   const [claim,  setClaim]  = useState(cached)

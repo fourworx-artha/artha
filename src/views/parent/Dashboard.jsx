@@ -597,14 +597,9 @@ export default function ParentDashboard() {
     const autoRun = async () => {
       const results = await Promise.allSettled(children.map(c => runPayslip(c.id)))
       if (family.config?.autoSettle) {
-        const settled = await Promise.allSettled(
+        await Promise.allSettled(
           results.map(r => r.status === 'fulfilled' ? settlePayslip(r.value.id) : Promise.resolve())
         )
-        // Check first-settle prompt after auto-settle
-        const anySettled = settled.some(r => r.status === 'fulfilled')
-        if (anySettled && family.config.autoSettle === undefined) {
-          setShowAutoSettlePrompt(true)
-        }
       }
       await reload()
       await refreshBanners()

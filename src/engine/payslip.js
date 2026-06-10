@@ -11,6 +11,20 @@ import { calculateWeeklyInterest } from './interest'
 import { calculateStreak } from './chores'
 import { getFamilyId } from '../utils/family'
 
+// ── Engine defaults (W6 base layer, pulled forward) ──────────────────────────
+// Config resolution order: ENGINE_DEFAULTS → family.config → member.config.
+// Numeric keys default to 0 so a config missing the stage-gated keys (e.g. the
+// W5 Starter onboarding config) can never produce NaN allocations.
+// streakBonusEnabled defaults true until W6 stage patches backfill member.config
+// for existing children — flipping it to false now would silently disable streak
+// bonuses for pre-W6 families whose configs lack the key.
+export const ENGINE_DEFAULTS = {
+  autoSavePercent:     0,
+  interestRate:        0,
+  philanthropyPercent: 0,
+  streakBonusEnabled:  true,
+}
+
 // ── Pure calculation ──────────────────────────────────────────────────────────
 
 /**
@@ -29,7 +43,7 @@ export function calculatePayslip({
   openingSavings  = null,   // prev payslip balancesAfter.savings — used for interest (prevents gaming)
   openingSubGoals = null,   // prev payslip balancesAfter.subGoals
 }) {
-  const config = familyConfig
+  const config = { ...ENGINE_DEFAULTS, ...familyConfig }
 
   // ── 1. Mandatory chores completion ─────────────────────────────
   const mandatoryChores = allChores.filter(c =>
@@ -84,8 +98,8 @@ export function calculatePayslip({
 
   // ── 2. Streak bonus ─────────────────────────────────────────────
   // Consecutive days all mandatory chores approved → bonus on adjusted salary.
-  // streakBonusEnabled defaults to true for existing families (backwards compat);
-  // W6 will set it to false for new Starter-stage children via ENGINE_DEFAULTS.
+  // streakBonusEnabled comes from the merged config (ENGINE_DEFAULTS layer);
+  // W6 stage patches will gate it per-child via member.config.
   const streakBonusEnabled = config.streakBonusEnabled !== false
   const streakBonusPct = !streakBonusEnabled ? 0
     : streakDays >= 14 ? 0.15 : streakDays >= 7 ? 0.10 : streakDays >= 3 ? 0.05 : 0

@@ -190,7 +190,8 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
         rentAmount:       round5pct(salary0),
         utilitiesAmount:  0,
         loanInterestRate: 0.05,
-        autoSettle:       false,
+        // autoSettle deliberately absent — the first-settle prompt (W3) only
+        // fires while the key is undefined, letting the parent choose the mode.
         configTouched:    [],
       }
 

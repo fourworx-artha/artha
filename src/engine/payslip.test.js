@@ -143,6 +143,25 @@ describe('calculatePayslip — zero-case hardening', () => {
     expect(result.balancesAfter.subGoals[0].balance).toBe(100)
   })
 
+  it('W5 Starter config (stage-gated keys absent) → no NaN, zero allocations', () => {
+    // Mirrors the config OnboardingFlow writes: no autoSavePercent, interestRate,
+    // philanthropyPercent or streakBonusEnabled. ENGINE_DEFAULTS must cover them.
+    const starterConfig = {
+      currency: 'INR', payPeriod: 'weekly', paydayDow: 6,
+      taxRate: 0.10, rentAmount: 10, utilitiesAmount: 0,
+      loanInterestRate: 0.05, configTouched: [],
+    }
+    const result = calculatePayslip(baseArgs({ familyConfig: starterConfig }))
+    expect(isFinite(result.net)).toBe(true)
+    expect(result.allocations.savings).toBe(0)
+    expect(result.allocations.philanthropy).toBe(0)
+    expect(result.allocations.spending).toBe(result.net)
+    expect(result.interestEarned).toBe(0)
+    expect(isFinite(result.balancesAfter.spending)).toBe(true)
+    expect(isFinite(result.balancesAfter.savings)).toBe(true)
+    expect(isFinite(result.balancesAfter.philanthropy)).toBe(true)
+  })
+
   it('loan fully repaid in this period → loanOutstandingAfter is 0, loan in balancesAfter is null', () => {
     const m = member({
       accounts: {

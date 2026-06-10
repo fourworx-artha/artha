@@ -1,22 +1,91 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 23)
-description: W1–W5 complete; W6 (stage system) is next
+name: Artha — Launch Blueprint Handoff (post-session 24)
+description: W1–W5 complete + audit fixes A1–A5 done; W6 (stage system) is next
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ complete.**
+**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ complete. Audit done; A1–A5 fixed (session 24).**
 
 ```
-Immediate next action: delete src/views/onboarding/Onboarding.jsx (unused), then start W6
-Pre-req before going live: export JSON backup → reset → re-onboard with placeholder identities (D17/D19)
+Immediate next action: start W6 — STEP 0 already done (ENGINE_DEFAULTS shipped via A1 fix);
+                       verify against the blueprint spec, then build stage derivation (useStage.js)
+Also: delete src/views/onboarding/Onboarding.jsx (unused), fold A10 into the W6 EconomicControls work
+Pre-req before going live: take a FRESH v4 export → reset → re-onboard with placeholder identities (D17/D19)
+                           (v3 backups predate the A5 restore fixes — don't restore from them)
+Open audit items: A6–A18 (see audit section below) — A6 (stale-balance settle) needs a design decision
 ```
 
 ### W6 entry point
-Start with **STEP 0**: read `calculatePayslip` and verify the engine resolves config as
-`{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }`. If not, fix and add a unit test first.
+**STEP 0 is done** (session 24 / A1 fix): `calculatePayslip` resolves `{ ...ENGINE_DEFAULTS, ...familyConfig }`
+and `runPayslip` passes `{ ...family.config, ...member.config }` — together the spec'd three-layer merge.
+Unit test in `payslip.test.js`. ⚠️ Interim deviation: `ENGINE_DEFAULTS.streakBonusEnabled` is `true`
+(not `false` per spec) to protect pre-W6 families — W6 stage patches must flip it to `false` once
+member.config backfill exists. Next: stage derivation + `useStage.js`.
 Full spec: `docs/ARTHA-LAUNCH-BLUEPRINT.md` W6 section.
+
+---
+
+## 🔍 W1–W5 Consistency Audit (2026-06-11 — code review only, nothing fixed yet)
+
+Full read-through of W1–W5 work. Findings ordered by severity. **No code was changed.**
+
+### 🔴 Critical — fix before W6
+
+> **✅ A1, A2, A3 fixed (2026-06-11, same session as audit).**
+> - A1: `ENGINE_DEFAULTS` pulled forward into `src/engine/payslip.js` — `calculatePayslip` now resolves `{ ...ENGINE_DEFAULTS, ...familyConfig }`, killing NaN at the source; regression test added (13/13 pass). NOTE: `streakBonusEnabled` defaults **true** in ENGINE_DEFAULTS for now (no existing config has the key; `false` would have silently disabled streak bonuses for the live family). W6 stage patches must flip it to `false` once member.config backfill exists.
+> - A2: `App.jsx` DeviceGate now reads `cached?.familyId` (camelCase).
+> - A3: `autoSettle` removed from the W5 starter config (stays `undefined` so the first-settle prompt fires); dead prompt check removed from the Dashboard auto-settle branch. This amends session-23's documented starterConfig (which listed `autoSettle: false`).
+
+**A1. New onboarded families produce NaN payslips (W5 ↔ W6 sequencing bug).**
+`OnboardingFlow.jsx` starterConfig deliberately omits `autoSavePercent` / `interestRate` / `philanthropyPercent` / `streakBonusEnabled` (stage-gated keys), but the W6 `ENGINE_DEFAULTS` layer that would supply defaults **does not exist yet**. `calculatePayslip` (`src/engine/payslip.js:178`) computes `roundRupees(net * config.autoSavePercent)` → `NaN` when the key is missing (`roundRupees(NaN)` = `NaN`). NaN propagates into `allocations.spending`, `balancesAfter.spending`, and the draft row (serialised as `null` in JSON). The W2 RPC then writes corrupt `balances_after` into `members.accounts` at settle. Any family created through the new onboarding gets a broken first payslip on its first payday. Also: `streakBonusEnabled` missing → engine defaults it **true** (`config.streakBonusEnabled !== false`), contradicting Starter-stage intent. Interim fix options: write explicit zeros into starterConfig, or pull `ENGINE_DEFAULTS` forward (it's W6 STEP 0 anyway).
+
+**A2. W4 device self-migration never fires (key-case bug).**
+`App.jsx:79` checks `cached?.family_id`, but the cached claim is always stored camelCase (`familyId`) — both `getDeviceClaim()` and `claimDevice()` return `{ deviceId, familyId, memberId }`. The backfill of `artha_family_id` for pre-W4 devices therefore never runs; in prod (`!DEV`) `getFamilyId()` returns `null` on those devices and every query targets a null family. Fix: `cached?.familyId`.
+
+**A3. First-settle teaching prompt can never appear for onboarded families (W3 ↔ W5 conflict).**
+starterConfig sets `autoSettle: false`, but `checkFirstSettlePrompt` (`Dashboard.jsx:616`) only fires when `autoSettle` is `undefined`/`null`. New families will never see the automation choice that W3 was built around. Additionally, the prompt check inside the auto-settle branch (`Dashboard.jsx:599–607`) is dead code: it tests `autoSettle === undefined` inside `if (family.config?.autoSettle)` — can never both be true. Decide: either onboarding omits `autoSettle`, or the prompt logic uses a separate `autoSettleChosen` marker.
+
+### 🟠 High
+
+> **✅ A4, A5 fixed (2026-06-11, same session).**
+> - A4: parent creation in `Members.jsx` now relies on `addMember`'s canonical default; child creation includes `philanthropy/subGoals/loan` (keeping `goalJar`); the child **edit** path spreads canonical defaults first, so legacy-shaped members self-heal on save; `seed.js` members get the full shape; `updateMember` now runs `validateAccounts` when `accounts` is in the changes (bypass closed). NOTE: existing DB rows with the legacy shape are healed only on Members-edit or settle — parents created pre-fix keep the old shape until edited (no money ops touch parents, so harmless).
+> - A5: backup format bumped to **version 4** — export now includes `member_requests`; import restores payslip `status` / `pending_transactions` / `credit_delta` / `bonus_potential`, maps reward `price → cost` (with pre-v4 `cost` fallback), and clears + re-inserts `member_requests`. `join_codes`/`device_claims` deliberately stay out of backups (device-bound, ephemeral).
+
+**A4. `Members.jsx` and `seed.js` create members with the legacy accounts shape — W1 validation then bricks money ops.**
+`Members.jsx:81` creates children with `{ spending: 0, savings: 0, goalJar }` (no `philanthropy`, no `subGoals`, no `loan`); `Members.jsx:67` creates parents without `subGoals`; `seed.js` seeds all four members with the `goalJar` shape. W1's `validateAccounts` (`operations.js:212`) requires finite `philanthropy` and an array `subGoals`, so **any** `updateMemberAccounts` call for these members throws — giveBonus, approveRewardRequest, transfers, reset, all of it. The seeded dev family fails the same way. Also `updateMember(id, { accounts })` (`operations.js:209`) bypasses `validateAccounts` entirely (the Members edit path uses it).
+
+**A5. Backup restore silently corrupts W2 payslips and reward prices.**
+- `importAllData` (`operations.js:1301–1316`) re-inserts payslips **without** `status`, `pending_transactions`, `credit_delta`, `bonus_potential`. A backed-up draft comes back with `status` null → `mapPayslip` defaults it to `'settled'` — the draft is now unsettleable and looks settled without its balances ever applied.
+- Export maps reward `cost → price` (`mapReward`), but import reads `r.cost` (`operations.js:1271`) → every restored reward has `cost: undefined`.
+- `exportAllData` omits `member_requests` entirely (pending donations/votes/withdrawals lost; stale rows also aren't deleted on import).
+This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D19).
+
+**A6. Settle overwrites interim wallet activity (W2 design risk).**
+`settle_payslip` RPC sets `accounts = balances_after` wholesale — values computed at **draft** time. Any transaction between draft and settle (reward purchase, parent bonus, savings↔wallet transfer, early loan repayment) is silently reverted. The window is real: W3 auto-runs drafts on payday, manual-mode parents may settle days later (the overdue-drafts banner exists precisely because of this). Consider: RPC re-derives balances from deltas, or blocks/queues wallet ops while a draft exists, or recomputes the draft at settle time.
+
+### 🟡 Medium
+
+**A7. Missed payday = silently skipped payslip.** Auto-run (`Dashboard.jsx:594`) fires only when `payday === true` and a parent opens the dashboard that day. W3 removed the manual Run button and `RunPayslipButton` renders `null` in the `run` phase. If no parent opens the app on payday, that period's payslip is never created and no UI can create it. Known Phase G (cron) gap, but worth an interim "Run missed payslip" affordance.
+
+**A8. Onboarding create has no rollback/idempotency.** `createFamily` calls `setFamilyId(familyId)` *before* inserting; if the insert fails, localStorage points at a non-existent family. If `handleCreate` fails partway (child insert, chore insert), retrying creates a **second** family with a new UUID, orphaning the first (`OnboardingFlow.jsx:179–242`, `operations.js:1500`).
+
+**A9. `checkFamilyExists()` is global, contradicting W4/W5 direction.** Any family row in the DB routes every new device to 'join' — a second family can permanently never onboard (`operations.js:1489`, used in `App.jsx:87`). Acceptable single-family stopgap, but must become a per-device decision before distribution; flagging so it isn't forgotten.
+
+**A10. EconomicControls clobbers `member.config.vacation` (and future W6 stage keys).** "Same for all" save clears child configs via `updateMemberConfig(ch.id, null)`; per-child save replaces the whole config with just `economicFields` (`EconomicControls.jsx:186–197`). Either path wipes the `vacation` flag written by `setMemberVacation`. W6's per-child stage-gated keys will live in the same object — this write pattern must become a merge.
+
+**A11. `autoPayslip` backwards-compat is read in only one place.** `EconomicControls.jsx:96` reads `c.autoSettle ?? c.autoPayslip`, but the Dashboard auto-settle path reads `family.config?.autoSettle` directly. A legacy family with only `autoPayslip: true` shows the toggle ON in EconomicControls yet never auto-settles.
+
+### 🟢 Low / cosmetic
+
+- **A12.** Onboarding payslip preview footer shows "Generated Invalid Date" — `buildMockPayslip` has no `createdAt` (`PayslipCard.jsx:226`). Preview also formats in INR even when another currency was detected (known/accepted per session 23).
+- **A13.** Onboarding step counters are inconsistent: "STEP x OF 8" across 11 screens; PARENT_PIN repeats "STEP 2", CHILD_PROFILE/PIN/ADD_MORE all say "STEP 3", and 7–8 never appear.
+- **A14.** `src/views/onboarding/Onboarding.jsx` still present, unimported (already scheduled for deletion).
+- **A15.** Backup "Generate Test History" tool: inserts `utility_charges` with `label`/`charged_at`/`family_id` keys while the real schema/ops use `reason` (insert errors are unchecked → silently no utility charges); donation backdate targets `type = 'donation'` but donations are written as `type: 'withdrawal'`; `.order().limit()` chained on an `update()` is not valid PostgREST (risks backdating *all* parent_bonus rows). Dev-only tool.
+- **A16.** `detectCurrency` has no EUR country mapping although EUR is in `CURRENCIES` (European users silently get INR).
+- **A17.** Ledger asymmetry: `interestTax` taxes savings **+ sub-goal** interest, but only savings interest is recorded as an income transaction — sub-goal interest never appears in the ledger (`payslip.js:401–405` vs `:226–227`).
+- **A18.** `getPayslipForPeriod` uses `.single()` and treats PGRST116 as "not found" — but PGRST116 also fires for *multiple* rows, so the duplicate-run guard in `runPayslip` would pass if 2+ payslips ever share a `period_end` (the W2 unique index only covers drafts).
 
 ---
 
@@ -129,8 +198,9 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 **Stage system (W6) — critical design rules:**
 - Stage is per-child and **derived** (not stored): `stage = f(settled payslip count)` + `family.config.stageOverride`
 - Stage-gated economic keys (`autoSavePercent`, `interestRate`, `streakBonusEnabled`, `philanthropyPercent`) live **only in `member.config`**, never `family.config`
-- Engine resolves config as: `{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }`
+- Engine resolves config as: `{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }` — **✅ shipped session 24 (A1 fix)**
 - ENGINE_DEFAULTS: `{ autoSavePercent: 0, interestRate: 0, philanthropyPercent: 0, streakBonusEnabled: false }`
+  — shipped with `streakBonusEnabled: true` interim (see audit A1 note); W6 stage patches flip it to `false`
 - Stage patches applied via shared `applyStagePatches(child, throughStage)` helper
 - Guided period thresholds (weekly): Saver@2, Investor@3, Economist@5
 - `payPeriod` locked to `'weekly'` until Economist (D16)

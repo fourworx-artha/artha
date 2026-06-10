@@ -64,7 +64,7 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
             name: changes.name,
             avatar: changes.avatar,
             pin: changes.pin,
-            accounts: { spending: 0, savings: 0, philanthropy: 0 },
+            // accounts omitted — addMember supplies the canonical default shape
           })
         } else {
           const goalJar = goalName.trim()
@@ -78,7 +78,7 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
             avatar: changes.avatar,
             pin: changes.pin,
             baseSalary: changes.baseSalary,
-            accounts: { spending: 0, savings: 0, goalJar },
+            accounts: { spending: 0, savings: 0, philanthropy: 0, subGoals: [], loan: null, goalJar },
             creditScore: 500,
           })
         }
@@ -87,7 +87,10 @@ function MemberSheet({ member, addingRole, onDone, onClose }) {
         if (!isParent) {
           const existingJar = member.accounts?.goalJar ?? { balance: 0 }
           const hasGoalInput = goalName.trim() || Number(goalTarget) > 0
+          // Defaults first: heals members created before the full accounts shape
+          // (spending/savings/goalJar only) so validateAccounts passes downstream
           changes.accounts = {
+            spending: 0, savings: 0, philanthropy: 0, subGoals: [], loan: null,
             ...member.accounts,
             goalJar: hasGoalInput
               ? {
