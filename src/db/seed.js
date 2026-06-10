@@ -1,15 +1,11 @@
 import { supabase } from './supabase'
-import { DEFAULT_CONFIG, getFamilyId() } from '../utils/constants'
+import { DEFAULT_CONFIG } from '../utils/constants'
+import { getFamilyId } from '../utils/family'
 import { hashPin } from '../auth/pinUtils'
 
-/**
- * Seeds the Supabase database with Dev's family data.
- * Called once on first launch if no family row exists.
- *
- * PINs below are placeholders — change them in the app after first login.
- * Parent PIN: 0000  |  Son PIN: 1111  |  Daughter PIN: 2222
- */
 export async function seedFamily() {
+  if (!import.meta.env.DEV) return
+
   // Check if members already exist (more reliable than checking family)
   const { count } = await supabase
     .from('members')

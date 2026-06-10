@@ -17,8 +17,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'icons/*.png'],
       manifest: {
-        name: 'Artha — Family Economy',
-        short_name: 'Artha',
+        name: 'Arto — Family Economy',
+        short_name: 'Arto',
         description: 'A real-world household economy for kids',
         theme_color: '#0d0f12',
         background_color: '#0d0f12',

@@ -1,26 +1,22 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 21)
-description: W1–W4 complete; W5 (onboarding flow) is next
+name: Artha — Launch Blueprint Handoff (post-session 23)
+description: W1–W5 complete; W6 (stage system) is next
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ complete.**
+**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ complete.**
 
 ```
-Immediate next action: start W5 — Onboarding flow
-Spec: docs/ARTHA-LAUNCH-BLUEPRINT.md W5 section
-Pre-req before W5 ships: export JSON backup → reset → re-onboard with placeholder identities (D17/D19)
+Immediate next action: delete src/views/onboarding/Onboarding.jsx (unused), then start W6
+Pre-req before going live: export JSON backup → reset → re-onboard with placeholder identities (D17/D19)
 ```
 
-### W5 overview
-- New `src/views/onboarding/OnboardingFlow.jsx` replaces `Onboarding.jsx`
-- Covers: family name, parent PIN, first child (name + avatar + salary), device handoff screen
-- Uses extracted `InviteCodePanel` component (shared with `InviteCode.jsx`)
-- All copy must use "Arto" (not "Artha") — see D12
-- PayPeriod selector only shows "weekly" until Economist stage (D16)
-- Mock payslip on screen 7 must show `stage: 'starter'` — W6 note
+### W6 entry point
+Start with **STEP 0**: read `calculatePayslip` and verify the engine resolves config as
+`{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }`. If not, fix and add a unit test first.
+Full spec: `docs/ARTHA-LAUNCH-BLUEPRINT.md` W6 section.
 
 ---
 
@@ -50,7 +46,15 @@ Pre-req before W5 ships: export JSON backup → reset → re-onboard with placeh
 - `createFamily` generates UUID + calls `setFamilyId`; `claimDevice` calls `setFamilyId` after claim
 - `DeviceGate` self-migrates existing devices synchronously before state init
 
-**W5–W9:** not started.
+**W5 ✅** — Onboarding flow shipped.
+- `OnboardingFlow.jsx` (10 steps): Welcome → Family → Parent profile/PIN → Child profile/PIN → Add more → Chores → Payday → Preview → Handoff
+- `InviteCodePanel.jsx` extracted as shared component; `InviteCode.jsx` refactored to use it
+- Starter config written on completion (no stage-gated keys)
+- `createFamily` accepts optional `config` param; `seed.js` DEV guard added + import fixed
+- PWA manifest + `<title>` + apple meta renamed to "Arto"
+- `Onboarding.jsx` (old) still present — delete before W6
+
+**W6–W9:** not started.
 
 **Roadmap position:**
 - [x] Phases 1–5: Core payroll, credit, loans, rewards, analytics, device auth
@@ -76,8 +80,8 @@ Pre-req before W5 ships: export JSON backup → reset → re-onboard with placeh
 | W2 | Atomic settlement RPC | ✅ done | W1 |
 | W3 | Auto-run drafts + zero-case hardening + first-settle flow | ✅ done | W2 |
 | W4 | Dynamic family_id + dev-device self-migration | ✅ done | — |
-| W5 | Onboarding flow (incl. device handoff) | **next** | W3, W4 |
-| W6 | Stage system / guided period | pending | W5 |
+| W5 | Onboarding flow (incl. device handoff) | ✅ done | W3, W4 |
+| W6 | Stage system / guided period | **next** | W5 |
 | W7 | In-app alerts (table + bell + banners) | pending | W6 |
 | W8 | First-week checklist + empty states | pending | W5, W7 |
 | W9 | Stage celebrations + guided-period graduation | pending | W6, W7 |

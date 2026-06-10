@@ -1497,7 +1497,7 @@ export async function checkFamilyExists() {
  * Create a brand-new family with the first parent member.
  * Returns the new memberId so the device can be auto-claimed and auto-logged-in.
  */
-export async function createFamily({ familyName, memberName, avatar, pinHash }) {
+export async function createFamily({ familyName, memberName, avatar, pinHash, config }) {
   const familyId = crypto.randomUUID()
   setFamilyId(familyId)
 
@@ -1505,7 +1505,7 @@ export async function createFamily({ familyName, memberName, avatar, pinHash }) 
   throwIfError(await supabase.from('families').insert({
     id:               familyId,
     name:             familyName,
-    config:           { ...DEFAULT_CONFIG },
+    config:           config ?? { ...DEFAULT_CONFIG },
     tax_fund_balance: 0,
     tax_fund_history: [],
   }))

@@ -9,7 +9,7 @@ import ParentNav from './components/ParentNav'
 import ChildNav from './components/ChildNav'
 import InstallPrompt from './components/InstallPrompt'
 import JoinFamily from './views/auth/JoinFamily'
-import Onboarding from './views/onboarding/Onboarding'
+import OnboardingFlow from './views/onboarding/OnboardingFlow'
 
 // Auth
 import PinAuth from './auth/PinAuth'
@@ -115,7 +115,7 @@ function DeviceGate({ children }) {
   )
 
   if (screen === 'onboarding') return (
-    <Onboarding
+    <OnboardingFlow
       onComplete={handleClaimed}
       onJoinInstead={() => setScreen('join')}
     />
