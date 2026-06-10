@@ -55,7 +55,7 @@ function buildMockPayslip(salary) {
     deductions: { tax, rent, taxRate: 0.10, loanRepayment: 0, recurringUtilities: 0, utilities: [] },
     gross, totalDeductions: tax + rent, net,
     allocations: { spending: net, savings: 0, philanthropy: 0, subGoalContributions: [] },
-    interestEarned: 0, creditScore: 500, status: 'settled',
+    interestEarned: 0, creditScore: 500, status: 'settled', stage: 'starter',
     bonusPotential: 0, pendingTransactions: [], creditDelta: 0,
     loanOutstandingAfter: 0, balancesAfter: { spending: net, savings: 0 },
   }

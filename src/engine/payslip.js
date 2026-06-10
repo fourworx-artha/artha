@@ -2,27 +2,29 @@ import { parseISO, getDay } from 'date-fns'
 import {
   getMember, getFamily, getChores,
   getChoreLogsForPeriod, getUtilityCharges,
-  addPayslip, rpcSettlePayslip,
+  addPayslip, rpcSettlePayslip, getPayslip,
   getPayslipForPeriod, getLatestPayslip,
+  getSettledPayslipCounts, applyStagePatches,
 } from '../db/operations'
+import { deriveStage, stageRank } from '../utils/stages'
 import { roundRupees } from '../utils/currency'
 import { currentPeriodStart, currentPeriodEnd, daysAgo } from '../utils/dates'
 import { calculateWeeklyInterest } from './interest'
 import { calculateStreak } from './chores'
 import { getFamilyId } from '../utils/family'
 
-// ── Engine defaults (W6 base layer, pulled forward) ──────────────────────────
+// ── Engine defaults (W6 base layer) ───────────────────────────────────────────
 // Config resolution order: ENGINE_DEFAULTS → family.config → member.config.
 // Numeric keys default to 0 so a config missing the stage-gated keys (e.g. the
 // W5 Starter onboarding config) can never produce NaN allocations.
-// streakBonusEnabled defaults true until W6 stage patches backfill member.config
-// for existing children — flipping it to false now would silently disable streak
-// bonuses for pre-W6 families whose configs lack the key.
+// streakBonusEnabled defaults false (Starter intent); migrateStageConfig
+// backfills member.config for pre-W6 families, and stage patches set it true
+// at Investor for everyone else.
 export const ENGINE_DEFAULTS = {
   autoSavePercent:     0,
   interestRate:        0,
   philanthropyPercent: 0,
-  streakBonusEnabled:  true,
+  streakBonusEnabled:  false,
 }
 
 // ── Pure calculation ──────────────────────────────────────────────────────────
@@ -316,12 +318,13 @@ export async function runPayslip(memberId, overridePeriod = null) {
   const periodEnd   = overridePeriod?.end   ?? currentPeriodEnd(family.config)
 
   // ── Load data (60 days of chore logs for streak calculation) ────
-  const [member, allChores, choreLogs, utilityCharges, streakLogs] = await Promise.all([
+  const [member, allChores, choreLogs, utilityCharges, streakLogs, settledCounts] = await Promise.all([
     getMember(memberId),
     getChores(getFamilyId()),
     getChoreLogsForPeriod(memberId, periodStart, periodEnd),
     getUtilityCharges(memberId, periodStart, periodEnd),
     getChoreLogsForPeriod(memberId, daysAgo(60), periodEnd),
+    getSettledPayslipCounts([memberId]),
   ])
 
   if (!member) throw new Error(`Member ${memberId} not found`)
@@ -459,6 +462,10 @@ export async function runPayslip(memberId, overridePeriod = null) {
   }
 
   // ── Save as draft (no balance updates yet) ──────────────────────
+  // W6: stamp the stage the payslip is earned at, so historical payslips
+  // always render with the rows that were unlocked at the time.
+  const stage = deriveStage(settledCounts[memberId] ?? 0, family.config?.stageOverride)
+
   const payslipId = crypto.randomUUID()
   await addPayslip({
     id: payslipId,
@@ -471,9 +478,10 @@ export async function runPayslip(memberId, overridePeriod = null) {
     status: 'draft',
     pendingTransactions,
     creditDelta,
+    stage,
   })
 
-  return { ...calc, id: payslipId, status: 'draft' }
+  return { ...calc, id: payslipId, status: 'draft', stage }
 }
 
 // ── Settle payslip (commits balance updates to DB) ────────────────────────────
@@ -482,7 +490,36 @@ export async function runPayslip(memberId, overridePeriod = null) {
  * Settle a draft payslip atomically via Postgres RPC.
  * All six writes (accounts, tax fund, transactions, credit score, payslip status)
  * execute in a single transaction. Throws if payslip not found or already settled.
+ *
+ * W6: after the RPC succeeds, detect stage advancement (derived stage before vs
+ * after this settle) and apply the new stage's config patch to the child.
+ * Advancement work runs OUTSIDE the transaction and must never fail the settle.
+ * Returns { settled, stageAdvanced } — stageAdvanced is null when no threshold
+ * was crossed (W9 celebrations/alerts hook in here).
  */
 export async function settlePayslip(payslipId) {
-  return rpcSettlePayslip(payslipId)
+  const payslip = await getPayslip(payslipId).catch(() => null)
+  const settled = await rpcSettlePayslip(payslipId)
+
+  let stageAdvanced = null
+  try {
+    if (payslip?.memberId) {
+      const [member, family, counts] = await Promise.all([
+        getMember(payslip.memberId),
+        getFamily(getFamilyId()),
+        getSettledPayslipCounts([payslip.memberId]),
+      ])
+      const override = family?.config?.stageOverride ?? null
+      const count    = counts[payslip.memberId] ?? 0   // includes the settle above
+      const before   = deriveStage(count - 1, override)
+      const after    = deriveStage(count, override)
+      if (member && stageRank(after) > stageRank(before)) {
+        await applyStagePatches(member, after)
+        stageAdvanced = { memberId: member.id, from: before, to: after }
+      }
+    }
+  } catch (e) {
+    console.warn('[Artha] stage advancement after settle failed:', e)
+  }
+  return { settled, stageAdvanced }
 }

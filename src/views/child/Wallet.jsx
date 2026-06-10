@@ -5,6 +5,7 @@ import { useFamily, useCurrency } from '../../context/FamilyContext'
 import { addRewardRequest, getRewardRequests, parentDepositToSavings, addMemberRequest } from '../../db/operations'
 import { REWARD_CATEGORIES } from '../../utils/constants'
 import { getFamilyId } from '../../utils/family'
+import { useStage } from '../../hooks/useStage'
 import { ChevronLeft, PiggyBank, Banknote, ShoppingBag } from 'lucide-react'
 
 // ── Buy confirmation sheet ────────────────────────────────────────────────────
@@ -204,6 +205,7 @@ export default function Wallet() {
   const { currentMember, refreshMember } = useAuth()
   const { rewards }            = useFamily()
   const fmt                    = useCurrency()
+  const { has }                = useStage(currentMember)
 
   const [requests,      setRequests]      = useState([])
   const [buying,        setBuying]        = useState(null)
@@ -267,13 +269,15 @@ export default function Wallet() {
         </div>
       </div>
 
-      {/* Quick transfer row */}
+      {/* Quick transfer row — Save unlocks at Saver; Cash Out is core Starter */}
       <div className="px-4 pt-3 pb-2 flex gap-2 shrink-0">
+        {has('savings') && (
         <button onClick={() => setTransferType('savings')}
           className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-mono font-semibold transition-all active:scale-95"
           style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)', color: '#60a5fa' }}>
           <PiggyBank size={13} /> Save
         </button>
+        )}
         <button onClick={() => setTransferType('cashout')}
           className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-mono font-semibold transition-all active:scale-95"
           style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)', color: 'var(--warning)' }}>

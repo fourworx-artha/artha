@@ -44,7 +44,29 @@ import History    from './views/child/History'
 
 
 import { DeviceContext } from './context/DeviceContext'
+import { useStage, useStages } from './hooks/useStage'
 export { useDevice } from './context/DeviceContext'
+
+// ── Stage route guards (W6) ───────────────────────────────────────────────────
+// Gated screens redirect home when accessed directly below the unlocking stage.
+// Renders nothing while settled counts load so unlocked children aren't bounced.
+function ChildStageRoute({ feature, children }) {
+  const { currentMember } = useAuth()
+  const { has, loading } = useStage(currentMember)
+  if (currentMember?.role === 'child') {
+    if (loading) return null
+    if (!has(feature)) return <Navigate to="/child/home" replace />
+  }
+  return children
+}
+
+// Parent screens unlock when ANY child has reached the feature's stage.
+function ParentStageRoute({ feature, children }) {
+  const { has, loading } = useStages()
+  if (loading) return null
+  if (!has(feature)) return <Navigate to="/parent" replace />
+  return children
+}
 
 // ── Device gate ───────────────────────────────────────────────────────────────
 // localStorage key for persisting the claim so it's synchronous on return visits
@@ -267,17 +289,17 @@ export default function App() {
               <Route path="chores"   element={<ChoreManager />} />
               <Route path="approve"  element={<ApproveChores />} />
               <Route path="more"     element={<More />} />
-              <Route path="utilities" element={<UtilityLogger />} />
+              <Route path="utilities" element={<ParentStageRoute feature="utilities"><UtilityLogger /></ParentStageRoute>} />
               <Route path="economy"  element={<EconomicControls />} />
               <Route path="rewards"  element={<RewardManager />} />
-              <Route path="tax-fund" element={<TaxFund />} />
+              <Route path="tax-fund" element={<ParentStageRoute feature="familyFund"><TaxFund /></ParentStageRoute>} />
               <Route path="backup"   element={<Backup />} />
               <Route path="members"     element={<Members />} />
-              <Route path="loans"       element={<Loans />} />
+              <Route path="loans"       element={<ParentStageRoute feature="loans"><Loans /></ParentStageRoute>} />
               <Route path="invite-code" element={<InviteCode />} />
               <Route path="child/:memberId" element={<ChildDetail />} />
               <Route path="expenses"        element={<Expenses />} />
-              <Route path="vacation"       element={<Vacation />} />
+              <Route path="vacation"       element={<ParentStageRoute feature="vacation"><Vacation /></ParentStageRoute>} />
             </Route>
 
             {/* Child routes */}
@@ -286,9 +308,9 @@ export default function App() {
               <Route path="chores"  element={<Chores />} />
               <Route path="ledger"  element={<Ledger />} />
               <Route path="payslip" element={<Navigate to="/child/ledger" replace />} />
-              <Route path="savings" element={<Savings />} />
-              <Route path="goal"        element={<GoalJar />} />
-              <Route path="family-fund" element={<FamilyFund />} />
+              <Route path="savings" element={<ChildStageRoute feature="savings"><Savings /></ChildStageRoute>} />
+              <Route path="goal"        element={<ChildStageRoute feature="subGoals"><GoalJar /></ChildStageRoute>} />
+              <Route path="family-fund" element={<ChildStageRoute feature="familyFund"><FamilyFund /></ChildStageRoute>} />
               <Route path="rewards" element={<Rewards />} />
               <Route path="wallet"  element={<Wallet />} />
               <Route path="history" element={<Navigate to="/child/ledger" replace />} />

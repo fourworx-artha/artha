@@ -8,6 +8,7 @@ import { getChoreLogsForPeriod, getChores, getUtilityCharges, makeEarlyRepayment
 import { calculateStreak } from '../../engine/chores'
 import { getFamilyId } from '../../utils/family'
 import { daysAgo } from '../../utils/dates'
+import { useStage } from '../../hooks/useStage'
 import { ChevronRight, X, Landmark } from 'lucide-react'
 import CreditScorePopup from '../../components/CreditScorePopup'
 import NetWorthChart from '../../components/NetWorthChart'
@@ -719,6 +720,7 @@ export default function ChildHome() {
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { periodStart, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
+  const { has } = useStage(currentMember)  // W6 feature gating
 
   const [projected,       setProjected]       = useState(null)
   const [streak,          setStreak]          = useState(0)
@@ -754,7 +756,7 @@ export default function ChildHome() {
 
   // Credit score popup — show once per pay period; also cache latestPayslip for on-demand tap
   useEffect(() => {
-    if (!currentMember || !periodEnd) return
+    if (!currentMember || !periodEnd || !has('creditScore')) return
     const score = currentMember.creditScore ?? 500
     getLatestPayslip(currentMember.id)
       .then(payslip => {
@@ -866,7 +868,9 @@ export default function ChildHome() {
   const subGoals        = accounts.subGoals ?? []
   const subGoalTotal    = subGoals.reduce((s, g) => s + (g.balance ?? 0), 0)
   const totalSavings    = (accounts.savings ?? 0) + subGoalTotal
-  const interestRate    = (currentMember?.config?.interestRate ?? family?.config?.interestRate) ?? 0.02
+  const interestRate    = has('interest')
+    ? ((currentMember?.config?.interestRate ?? family?.config?.interestRate) ?? 0)
+    : 0
   const walletInterestPotential = Math.round((accounts.spending ?? 0) * interestRate)
 
   // ── Hero card data ───────────────────────────────────────────────────────────
@@ -975,7 +979,6 @@ export default function ChildHome() {
     })
 
   const savingsProjected = (() => {
-    const interestRate = (currentMember?.config?.interestRate ?? family?.config?.interestRate) ?? 0.02
     const periodicSavings = projected?.savings ?? 0
     let balance = totalSavings
     return Array.from({ length: 8 }, (_, i) => {
@@ -996,13 +999,13 @@ export default function ChildHome() {
             {currentMember?.avatar} {currentMember?.name}
           </h2>
           <div className="flex items-center gap-2">
-            {streak >= 3 && (
+            {has('streaks') && streak >= 3 && (
               <span className="text-xs font-mono px-2 py-0.5 rounded-full"
                 style={{ background: 'rgba(251,191,36,0.12)', color: 'var(--warning)', border: '1px solid rgba(251,191,36,0.25)' }}>
                 🔥 {streak}d streak
               </span>
             )}
-            {(() => {
+            {has('creditScore') && (() => {
               const score = currentMember?.creditScore ?? 500
               const color = score >= 700 ? 'var(--positive)' : score >= 500 ? 'var(--warning)' : 'var(--negative)'
               const bg    = score >= 700 ? 'rgba(74,222,128,0.1)' : score >= 500 ? 'rgba(251,191,36,0.1)' : 'rgba(239,68,68,0.1)'
@@ -1071,9 +1074,11 @@ export default function ChildHome() {
                 {walletDelta >= 0 ? '+' : ''}{fmt(walletDelta)} since last pay
               </p>
             )}
-            <div className="mt-2 -mx-1">
-              <Sparkline data={walletHistory} color="#4ade80" />
-            </div>
+            {has('sparklines') && (
+              <div className="mt-2 -mx-1">
+                <Sparkline data={walletHistory} color="#4ade80" />
+              </div>
+            )}
             <p className="text-xs font-mono mt-1 flex items-center gap-0.5" style={{ color: 'var(--text-dim)' }}>
               Spend &amp; transfer <ChevronRight size={11} />
             </p>
@@ -1093,17 +1098,21 @@ export default function ChildHome() {
                 {fmt(prevPeriodSpent)} last period
               </p>
             )}
-            <div className="mt-2 -mx-1">
-              <Sparkline data={spentHistory} color="#f87171" />
-            </div>
+            {has('sparklines') && (
+              <div className="mt-2 -mx-1">
+                <Sparkline data={spentHistory} color="#f87171" />
+              </div>
+            )}
             <p className="text-xs font-mono mt-1 flex items-center gap-0.5" style={{ color: 'var(--text-dim)' }}>
               View spending <ChevronRight size={11} />
             </p>
           </button>
         </div>
 
-        {/* Savings + Philanthropy row */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Savings + Philanthropy row — savings at Saver, philanthropy at Economist */}
+        {(has('savings') || has('philanthropy')) && (
+        <div className={`grid ${has('savings') && has('philanthropy') ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
+          {has('savings') && (
           <button onClick={() => navigate('/child/savings')}
             className="p-4 rounded-xl text-left transition-all active:scale-95 flex flex-col"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -1117,13 +1126,17 @@ export default function ChildHome() {
               </p>
             )}
             <p className="text-xs font-mono mt-1" style={{ color: 'var(--text-muted)' }}>
-              {+(((currentMember?.config?.interestRate ?? family?.config?.interestRate) ?? 0.02) * 100).toFixed(2)}%/{periodLabel} interest
+              {+(interestRate * 100).toFixed(2)}%/{periodLabel} interest
             </p>
-            <div className="mt-2 -mx-1">
-              <Sparkline data={savingsHistory} color="#1E3A8A" />
-            </div>
+            {has('sparklines') && (
+              <div className="mt-2 -mx-1">
+                <Sparkline data={savingsHistory} color="#1E3A8A" />
+              </div>
+            )}
           </button>
+          )}
 
+          {has('philanthropy') && (
           <button onClick={() => setShowDonate(true)}
             className="p-4 rounded-xl text-left transition-all active:scale-95 flex flex-col"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -1141,10 +1154,12 @@ export default function ChildHome() {
               Donate <ChevronRight size={11} />
             </p>
           </button>
+          )}
         </div>
+        )}
 
         {/* Outstanding loan chip — tap to prepay */}
-        {loanOutstanding > 0 && (
+        {has('loans') && loanOutstanding > 0 && (
           <button
             onClick={() => setShowPrepay(true)}
             className="flex items-center gap-2 px-3 py-2.5 rounded-xl w-full text-left transition-all active:scale-95"
@@ -1243,10 +1258,13 @@ export default function ChildHome() {
           )
         })()}
 
-        {/* ── Stats section ── */}
+        {/* ── Stats section — savings charts at Saver, full set at Investor+ ── */}
+        {has('savingsProjection') && (
         <p className="text-xs font-mono px-1 mt-1" style={{ color: 'var(--text-muted)' }}>STATS</p>
+        )}
 
         {/* Family Fund card */}
+        {has('familyFund') && (
         <button onClick={() => navigate('/child/family-fund')}
           className="flex items-center justify-between px-4 py-3 rounded-xl w-full text-left transition-all active:scale-95"
           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -1263,8 +1281,10 @@ export default function ChildHome() {
           </div>
           <ChevronRight size={16} style={{ color: 'var(--text-dim)' }} />
         </button>
+        )}
 
         {/* Net worth over time */}
+        {has('netWorth') && (
         <button onClick={() => setShowNetWorth(true)} className="p-4 rounded-xl flex flex-col gap-2 w-full text-left transition-all active:scale-95"
           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <div className="flex items-center justify-between">
@@ -1275,16 +1295,19 @@ export default function ChildHome() {
           </div>
           <NetWorthChart data={netWorthData} />
         </button>
+        )}
 
         {/* Savings growth + projection */}
+        {has('savingsProjection') && (
         <button onClick={() => navigate('/child/savings')} className="p-4 rounded-xl flex flex-col gap-2 w-full text-left transition-all active:scale-95"
           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
           <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>SAVINGS GROWTH</p>
           <SavingsGrowthChart actualData={savingsActual} projected={savingsProjected} />
         </button>
+        )}
 
         {/* Credit score history */}
-        {creditChartData.length >= 2 && (
+        {has('creditScore') && creditChartData.length >= 2 && (
           <div className="p-4 rounded-xl flex flex-col gap-2"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div className="flex items-center justify-between">
@@ -1300,7 +1323,7 @@ export default function ChildHome() {
         )}
 
         {/* Salary captured vs max */}
-        {mandatoryChartData.length > 0 && (
+        {has('analytics') && mandatoryChartData.length > 0 && (
           <div className="p-4 rounded-xl flex flex-col gap-3"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div>
@@ -1329,7 +1352,7 @@ export default function ChildHome() {
         )}
 
         {/* Bonus chore performance */}
-        {bonusChartData.length > 0 && (
+        {has('analytics') && bonusChartData.length > 0 && (
           <div className="p-4 rounded-xl flex flex-col gap-3"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div>
@@ -1358,7 +1381,7 @@ export default function ChildHome() {
         )}
 
         {/* Income allocation */}
-        {allocationChartData.length > 0 && (
+        {has('analytics') && allocationChartData.length > 0 && (
           <div className="p-4 rounded-xl flex flex-col gap-3"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div>
@@ -1389,7 +1412,7 @@ export default function ChildHome() {
         )}
 
         {/* Top rewards spent */}
-        {allTxns.length > 0 && (
+        {has('analytics') && allTxns.length > 0 && (
           <div className="p-4 rounded-xl flex flex-col gap-3"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div>

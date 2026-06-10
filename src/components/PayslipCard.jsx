@@ -1,5 +1,6 @@
 import { displayDateFull } from '../utils/dates'
 import { useCurrency } from '../context/FamilyContext'
+import { stageHasFeature } from '../utils/stages'
 
 // ── Terminal primitives ───────────────────────────────────────────────────────
 
@@ -92,6 +93,12 @@ export default function PayslipCard({ payslip, member, familyName }) {
   if (!payslip) return null
   const { earnings, deductions, gross, totalDeductions, net, allocations, interestEarned, subGoalInterestEarned } = payslip
 
+  // W6: the payslip is the curriculum — rows for features above the stage it
+  // was earned at are REMOVED, not dimmed. Pre-W6 payslips (stage null) render
+  // everything. A Starter payslip shows exactly salary → tax → rent → net → spending.
+  const stage = payslip.stage ?? 'economist'
+  const has = (feature) => stageHasFeature(stage, feature)
+
   return (
     <div style={{
       background: 'var(--bg-base)',
@@ -139,7 +146,7 @@ export default function PayslipCard({ payslip, member, familyName }) {
           <TermBar value={earnings.mandatoryCompletionPercent} max={1} width={14} />
         </div>
         <Row label="Adjusted Salary"  value={fmt(earnings.adjustedSalary)} positive={earnings.adjustedSalary > 0} />
-        {earnings.streakBonus > 0 && (
+        {has('streaks') && earnings.streakBonus > 0 && (
           <Row
             label={`🔥 Streak bonus (${earnings.streakDays}d · +${+(earnings.streakBonusPct * 100).toFixed(2)}%)`}
             value={fmt(earnings.streakBonus)} positive indent />
@@ -176,10 +183,10 @@ export default function PayslipCard({ payslip, member, familyName }) {
         {deductions.utilities?.map((u, i) => (
           <Row key={i} label={u.reason} value={fmt(-u.amount)} negative indent />
         ))}
-        {deductions.loanRepayment > 0 && (
+        {has('loans') && deductions.loanRepayment > 0 && (
           <Row label="Loan Repayment" value={fmt(-deductions.loanRepayment)} negative />
         )}
-        {(deductions.interestTax ?? 0) > 0 && (
+        {has('interest') && (deductions.interestTax ?? 0) > 0 && (
           <Row label={`Interest tax (${+(((deductions.taxRate ?? 0)) * 100).toFixed(2)}%)`} value={fmt(-deductions.interestTax)} negative />
         )}
         <Divider char="·" />
@@ -210,14 +217,22 @@ export default function PayslipCard({ payslip, member, familyName }) {
       {/* Allocations */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <SectionLabel>ALLOCATIONS</SectionLabel>
-        <Row label={`→ Savings (${+((allocations.savingsRate ?? allocations.savings / (net || 1)) * 100).toFixed(2)}%)`} value={fmt(allocations.savings)} positive={allocations.savings > 0} />
-        {allocations.philanthropy > 0 && (
+        {has('savings') && (
+          <Row label={`→ Savings (${+((allocations.savingsRate ?? allocations.savings / (net || 1)) * 100).toFixed(2)}%)`} value={fmt(allocations.savings)} positive={allocations.savings > 0} />
+        )}
+        {has('philanthropy') && allocations.philanthropy > 0 && (
           <Row label={`→ Philanthropy (${+((allocations.philanthropyRate ?? allocations.philanthropy / (net || 1)) * 100).toFixed(2)}%)`} value={fmt(allocations.philanthropy)} color='#D4A017' />
         )}
         <Row label="→ Spending Wallet" value={fmt(allocations.spending)} positive={allocations.spending > 0} />
-        <Row label="+ Interest on savings" value={fmt(interestEarned ?? 0)} positive={interestEarned > 0} dim={!interestEarned} />
-        <Row label="+ Interest on goals"   value={fmt(subGoalInterestEarned ?? 0)} positive={subGoalInterestEarned > 0} dim={!subGoalInterestEarned} />
-        <Row label="− Loan interest accrued" value={fmt(-(deductions.loanInterest ?? 0))} negative={deductions.loanInterest > 0} dim={!deductions.loanInterest} />
+        {has('interest') && (
+          <Row label="+ Interest on savings" value={fmt(interestEarned ?? 0)} positive={interestEarned > 0} dim={!interestEarned} />
+        )}
+        {has('subGoals') && (
+          <Row label="+ Interest on goals"   value={fmt(subGoalInterestEarned ?? 0)} positive={subGoalInterestEarned > 0} dim={!subGoalInterestEarned} />
+        )}
+        {has('loans') && (
+          <Row label="− Loan interest accrued" value={fmt(-(deductions.loanInterest ?? 0))} negative={deductions.loanInterest > 0} dim={!deductions.loanInterest} />
+        )}
       </div>
 
       {/* Footer */}

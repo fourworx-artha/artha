@@ -1,17 +1,23 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, CheckSquare, FileText, Heart, LogOut } from 'lucide-react'
+import { Home, CheckSquare, FileText, Heart, Gift, PiggyBank, LogOut } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-
-const items = [
-  { to: '/child/home',   label: 'Home',    Icon: Home,        end: true },
-  { to: '/child/chores', label: 'Chores',  Icon: CheckSquare },
-  { to: '/child/ledger', label: 'Ledger',  Icon: FileText,    badgeKey: 'ledger' },
-  { to: '/child/goal',   label: 'Goals',   Icon: Heart },
-]
+import { useStage } from '../hooks/useStage'
 
 export default function ChildNav({ hasDraftPayslip }) {
-  const { logout } = useAuth()
+  const { logout, currentMember } = useAuth()
+  const { has } = useStage(currentMember)
   const navigate   = useNavigate()
+
+  // Starter: Home, Chores, Ledger, Rewards. Savings appears at Saver,
+  // Goals (sub-goals) at Investor — the nav itself teaches the progression.
+  const items = [
+    { to: '/child/home',    label: 'Home',    Icon: Home,        end: true },
+    { to: '/child/chores',  label: 'Chores',  Icon: CheckSquare },
+    { to: '/child/ledger',  label: 'Ledger',  Icon: FileText,    badgeKey: 'ledger' },
+    ...(has('savings')  ? [{ to: '/child/savings', label: 'Savings', Icon: PiggyBank }] : []),
+    ...(has('subGoals') ? [{ to: '/child/goal',    label: 'Goals',   Icon: Heart }]     : []),
+    { to: '/child/rewards', label: 'Rewards', Icon: Gift },
+  ]
 
   const handleLogout = () => {
     logout()

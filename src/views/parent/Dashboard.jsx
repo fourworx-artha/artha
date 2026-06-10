@@ -9,6 +9,8 @@ import { getDueChoresForMember, buildLogMap } from '../../engine/chores'
 import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore, updateFamilyConfig } from '../../db/operations'
 import { getFamilyId } from '../../utils/family'
 import PayslipCard from '../../components/PayslipCard'
+import { useStage, useStages } from '../../hooks/useStage'
+import { stageHasFeature } from '../../utils/stages'
 
 // ── Parent Chore Sheet ────────────────────────────────────────────────────────
 function ParentChoreSheet({ child, chores, onClose, onDone }) {
@@ -135,6 +137,7 @@ function ParentChoreSheet({ child, chores, onClose, onDone }) {
 // ── Give Money sheet ──────────────────────────────────────────────────────────
 function GiveMoneySheet({ child, onDone, onClose }) {
   const fmt = useCurrency()
+  const { has } = useStage(child)  // loans unlock at Economist (W6)
   const [tab,          setTab]          = useState('bonus') // 'bonus' | 'loan'
   const [amount,       setAmount]       = useState('')
   const [reason,       setReason]       = useState('')
@@ -217,7 +220,7 @@ function GiveMoneySheet({ child, onDone, onClose }) {
         <div className="overflow-y-auto px-4 py-4 flex flex-col gap-4">
           {/* Tab toggle */}
           <div className="flex gap-2 p-1 rounded-xl" style={{ background: 'var(--bg-raised)' }}>
-            {['bonus', 'loan'].map(t => (
+            {(has('loans') ? ['bonus', 'loan'] : ['bonus']).map(t => (
               <button key={t} onClick={() => { setTab(t); setError('') }}
                 className="flex-1 py-2 rounded-lg text-xs font-mono font-semibold capitalize transition-all"
                 style={{
@@ -577,6 +580,7 @@ export default function ParentDashboard() {
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { paydayToday: payday, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
+  const { stages, has: familyHas } = useStages()  // W6 per-child + family-level gating
 
   const [choreStats,     setChoreStats]     = useState({})
   const [periodStats,    setPeriodStats]    = useState({})
@@ -763,8 +767,8 @@ export default function ParentDashboard() {
           </div>
         )}
 
-        {/* Tax Fund */}
-        {family && (
+        {/* Tax Fund — view unlocks at Economist; tax still accrues silently before */}
+        {family && familyHas('familyFund') && (
           <button onClick={() => navigate('/parent/tax-fund')}
             className="p-4 rounded-xl text-left w-full transition-all active:scale-95"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -780,6 +784,7 @@ export default function ParentDashboard() {
         {children.map(child => {
           const stats = choreStats[child.id]
           const loanOutstanding = child.accounts?.loan?.outstanding ?? 0
+          const childHas = (f) => stageHasFeature(stages[child.id], f)
           return (
             <div key={child.id} className="p-4 rounded-xl"
               style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', cursor: 'pointer' }}
@@ -792,7 +797,7 @@ export default function ParentDashboard() {
                     <p className="text-sm font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
                       {child.name}
                     </p>
-                    {(() => {
+                    {childHas('creditScore') && (() => {
                       const score = child.creditScore ?? 500
                       const color = score >= 700 ? 'var(--positive)' : score >= 500 ? 'var(--warning)' : 'var(--negative)'
                       const bg    = score >= 700 ? 'rgba(74,222,128,0.1)' : score >= 500 ? 'rgba(251,191,36,0.1)' : 'rgba(239,68,68,0.1)'
@@ -837,7 +842,7 @@ export default function ParentDashboard() {
               </div>
 
               {/* Outstanding loan chip */}
-              {loanOutstanding > 0 && (
+              {childHas('loans') && loanOutstanding > 0 && (
                 <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-lg w-fit"
                   style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
                   <span className="text-xs font-mono" style={{ color: 'var(--warning)' }}>
@@ -856,19 +861,24 @@ export default function ParentDashboard() {
                 />
               )}
 
-              {/* Balances */}
-              <div className="grid grid-cols-3 gap-2 mt-3">
-                {[
-                  { label: 'SPENDING',     value: child.accounts?.spending     ?? 0, color: 'var(--positive)' },
-                  { label: 'SAVINGS',      value: child.accounts?.savings      ?? 0, color: 'var(--accent-blue)' },
-                  { label: 'PHILANTHROPY', value: child.accounts?.philanthropy ?? 0, color: '#D4A017' },
-                ].map(({ label, value, color }) => (
+              {/* Balances — tiles appear per the child's stage */}
+              {(() => {
+              const tiles = [
+                { label: 'SPENDING',     value: child.accounts?.spending     ?? 0, color: 'var(--positive)' },
+                ...(childHas('savings')      ? [{ label: 'SAVINGS',      value: child.accounts?.savings      ?? 0, color: 'var(--accent-blue)' }] : []),
+                ...(childHas('philanthropy') ? [{ label: 'PHILANTHROPY', value: child.accounts?.philanthropy ?? 0, color: '#D4A017' }] : []),
+              ]
+              return (
+              <div className={`grid ${tiles.length === 3 ? 'grid-cols-3' : tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mt-3`}>
+                {tiles.map(({ label, value, color }) => (
                   <div key={label} className="p-2 rounded-lg text-center" style={{ background: 'var(--bg-raised)' }}>
                     <p className="text-xs font-mono" style={{ color: 'var(--text-muted)', fontSize: '9px' }}>{label}</p>
                     <p className="text-sm font-mono font-semibold mt-0.5" style={{ color }}>{fmt(value)}</p>
                   </div>
                 ))}
               </div>
+              )
+              })()}
             </div>
           )
         })}

@@ -25,7 +25,7 @@ Tech stack: React 19, Vite 8, TailwindCSS 4, Supabase (PostgreSQL + Realtime), d
 Files where a bug would corrupt data, break core functionality, or cause the wrong family to see the wrong data.
 
 ### `src/engine/payslip.js`
-**What it does:** The entire payroll calculation engine in one file. Contains three exports: `calculatePayslip` (pure math, no DB), `runPayslip` (creates a draft payslip in the DB), and `settlePayslip` (commits all balance changes, logs all transactions, updates credit score, marks payslip settled).
+**What it does:** The entire payroll calculation engine in one file. Exports `ENGINE_DEFAULTS` (base config layer — stage-gated keys default to 0/false), `calculatePayslip` (pure math, no DB; resolves `{ ...ENGINE_DEFAULTS, ...familyConfig }`), `runPayslip` (creates a draft payslip in the DB, stamping the child's current guided-period `stage` — W6), and `settlePayslip` (delegates to the atomic `settle_payslip` Postgres RPC — W2 — then detects stage advancement and applies that stage's config patch to the child via `applyStagePatches`; returns `{ settled, stageAdvanced }`).
 
 **Why dangerous:** Settlement is the only place where all five account balances (spending, savings, philanthropy, sub-goals, loan) are updated together. It also writes the credit score delta, logs every transaction for that period, and credits the tax fund. A bug here will produce wrong balances that are hard to detect and impossible to auto-reverse.
 
@@ -115,7 +115,7 @@ The parent's main screen. Shows all children's current balances, today's chore s
 Queue of pending chore logs and member requests (donations, cash withdrawals, savings withdrawals, sub-goal withdrawals, tax goal votes). Parent approves or rejects each item. Contains `approveMemberReq` which dispatches to the right operation based on `req.type`. Getting this wrong would mean approving the wrong action.
 
 ### `src/views/parent/EconomicControls.jsx`
-Simple/Advanced mode toggle. Lets parents set tax rate, rent, savings interest, loan interest, auto-save percent, philanthropy percent, recurring utilities, payday schedule, and per-child overrides. Changes write to `family.config` via `updateFamilyConfig`. Wrong values here flow into every future payslip calculation.
+Two modes since W6. Guided mode (no child at Economist): currency, payday day-of-week (payPeriod locked weekly), autoSettle, tax rate, rent, and per-child auto-save % for Saver+ children. Economist mode: the full Simple/Advanced UI (interest rates, loan rate, philanthropy %, utilities, per-child overrides). All writes MERGE into the existing config object — never replace — and append changed keys to that layer's `configTouched` so stage patches can't clobber parent edits. Stage-gated keys write only to `member.config`, and only for children whose stage has unlocked them. Wrong values here flow into every future payslip calculation.
 
 ### `src/views/parent/Backup.jsx`
 Contains three tools: full data export (JSON download), full data import (JSON upload with destructive wipe-then-restore), and Generate Test History (dev tool). Also contains the Reset All History & Wallets button. This screen has the most destructive operations in the app.
@@ -124,7 +124,7 @@ Contains three tools: full data export (JSON download), full data import (JSON u
 Deep analytics screen for a single child. Shows net worth, spending breakdown, salary capture vs max, bonus chore performance chart, savings growth projection, top rewards chart, and credit score history. Also contains BuyRewardScreen — a full-screen overlay for the parent to buy a reward on behalf of the child directly (no approval queue). Contains the `NetWorthSheet` breakdown.
 
 ### `src/views/child/Home.jsx`
-The child's main dashboard. Shows credit score gauge, wallet balance, savings balance (including sub-goals), philanthropy balance, projected earnings widget, net worth chart, savings growth chart, bonus chore performance chart, top rewards chart, and credit score history. Contains `NetWorthSheet`, `CashOutSheet`, and `InterestSheet` bottom sheets.
+The child's main dashboard. Shows credit score gauge, wallet balance, savings balance (including sub-goals), philanthropy balance, projected earnings widget, net worth chart, savings growth chart, bonus chore performance chart, top rewards chart, and credit score history. Contains `NetWorthSheet`, `CashOutSheet`, and `InterestSheet` bottom sheets. Since W6 every card/chart is gated by the child's derived stage via `useStage` — a Starter child sees only wallet, spent, projected earnings, chores and payday banners.
 
 ### `src/views/child/Ledger.jsx`
 Payslip history grouped by period. Shows settled payslips with `PayslipCard`, pending transactions, and draft payslip banner. The primary historical record for a child's payroll.
@@ -165,8 +165,8 @@ Per-child vacation toggle. Parent sets active/inactive and paid/unpaid leave. Va
 ### `src/views/parent/Expenses.jsx`
 Displays parent-level expense tracking (view into utility charges and family fund outflows).
 
-### `src/views/onboarding/Onboarding.jsx`
-First-run screen. Collects family name, parent name, avatar, and PIN. Calls `createFamily()` which inserts into Supabase and auto-claims the device. Only shown once per device (when no family exists).
+### `src/views/onboarding/OnboardingFlow.jsx`
+First-run flow (W5; the old `Onboarding.jsx` was deleted in session 25). Ten steps: family → parent profile/PIN → child profile/PIN → chores → payday → payslip preview (mock payslip rendered at `stage: 'starter'`) → device handoff. Calls `createFamily()` with the Starter config (no stage-gated keys, no `autoSettle`) and auto-claims the device.
 
 ### `src/views/auth/JoinFamily.jsx`
 Shown to any device that has no device claim yet. Child or second parent enters a 6-character invite code generated by the parent in InviteCode screen. On success, the device is claimed and linked to a specific member.
@@ -232,6 +232,12 @@ Schema reference file (not used at runtime — documentation only).
 Migration utility for moving data from an earlier Dexie/IndexedDB schema to Supabase. Only needed for historical one-time migration.
 
 ---
+
+### `src/utils/stages.js`
+**NEW (W6).** Pure stage logic: `deriveStage(settledCount, stageOverride)` (Starter day one, Saver@2, Investor@3, Economist@5 settled payslips), `stageRank`, `stageHasFeature` (against `FEATURE_STAGES` in constants), `unlockedStageKeys`, `buildStagePatch` (cumulative config patch, skips `configTouched` keys, idempotent). No DB access — the write side (`applyStagePatches`, `migrateStageConfig`) lives in operations.js.
+
+### `src/hooks/useStage.js`
+**NEW (W6).** `useStage(member)` → `{ stage, has(feature), override, settledCount, loading }` for one member; `useStages()` → `{ stages, maxStage, guidedActive, has }` for parent surfaces (menus unlock when ANY child reaches a stage). Reads `settledCounts` cached in FamilyContext. `loading` guards route redirects until counts arrive.
 
 ## 4. Scaffolding / Config
 
@@ -347,12 +353,12 @@ Plain English paths from user action to database, for each major operation.
 All 12 tables in Supabase. RLS is currently disabled on all tables — intentional during single-family testing phase.
 
 ### `families`
-One row per family. Stores the family name and two critical JSON columns: `config` (all economic parameters — tax rate, rent, savings rate, interest rates, payday schedule, currency) and `tax_fund_balance` + `tax_fund_history` (the family's pooled tax fund). Every economic setting used in payroll comes from this row.
+One row per family. Stores the family name and two critical JSON columns: `config` (family-level economic parameters — tax rate, rent, loan rate, payday schedule, currency, `autoSettle`, `stageOverride`, `configTouched`; since W6 the four stage-gated keys are stripped from here by `migrateStageConfig` and live only in `member.config`) and `tax_fund_balance` + `tax_fund_history` (the family's pooled tax fund).
 
 Related to: `members` (one-to-many by `family_id`), `chores` (by `family_id`), `rewards` (by `family_id`)
 
 ### `members`
-One row per person — parents and children. Key fields: `role` (parent/child), `base_salary`, `pin` (SHA-256 hash), `credit_score` (300–850), `accounts` (JSON: spending, savings, philanthropy, subGoals array, loan object), `config` (JSON: per-child economic overrides, vacation state). The `accounts` column is the most mutation-sensitive field in the entire app.
+One row per person — parents and children. Key fields: `role` (parent/child), `base_salary`, `pin` (SHA-256 hash), `credit_score` (300–850), `accounts` (JSON: spending, savings, philanthropy, subGoals array, loan object), `config` (JSON: per-child economic overrides, vacation state; since W6 the stage-gated keys `autoSavePercent` / `interestRate` / `philanthropyPercent` / `streakBonusEnabled` live ONLY here — written by stage patches — plus `configTouched`, the list of keys the parent has edited that patches must never overwrite). The `accounts` column is the most mutation-sensitive field in the entire app.
 
 Related to: `families` (many-to-one), `chore_logs`, `transactions`, `payslips`, `reward_requests`, `utility_charges`, `member_requests`, `device_claims`
 
@@ -372,7 +378,7 @@ Immutable audit log of every financial event. `type` is one of: salary, bonus, p
 Related to: `members` (by `member_id`)
 
 ### `payslips`
-One row per completed payroll run per child. `status` is draft (calculated, not yet committed to balances) or settled (balances updated). Key JSON columns: `earnings` (salary, chore completion %, streak, bonuses, vacation flags), `deductions` (tax, rent, utilities, loan interest), `allocations` (savings %, philanthropy %, spending), `balances_after` (the exact account state after settlement), `credit_score` (written at settlement time, not draft time). `bonus_potential` stores the max possible bonus chore earnings for that period.
+One row per completed payroll run per child. `status` is draft (calculated, not yet committed to balances) or settled (balances updated). Key JSON columns: `earnings` (salary, chore completion %, streak, bonuses, vacation flags), `deductions` (tax, rent, utilities, loan interest), `allocations` (savings %, philanthropy %, spending), `balances_after` (the exact account state after settlement), `credit_score` (written at settlement time, not draft time). `bonus_potential` stores the max possible bonus chore earnings for that period. W2 added `pending_transactions` (jsonb) and `credit_delta` (int) — pre-computed at draft time so the `settle_payslip` RPC is a dumb committer. W6 added `stage` (text) — the guided-period stage the payslip was earned at, stamped at draft time; NULL on pre-W6 rows (PayslipCard renders those with all rows). Settled-payslip counts per child drive stage derivation; legacy NULL `status` counts as settled.
 
 Related to: `members` (by `member_id`)
 

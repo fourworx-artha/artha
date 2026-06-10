@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { today } from '../utils/dates'
-import { DEFAULT_CONFIG } from '../utils/constants'
+import { DEFAULT_CONFIG, STAGE_GATED_KEYS, STAGE_PATCHES } from '../utils/constants'
+import { deriveStage, buildStagePatch, unlockedStageKeys } from '../utils/stages'
 import { getFamilyId, setFamilyId } from '../utils/family'
 
 // ── Row mappers (DB snake_case → JS camelCase) ────────────────────────────────
@@ -98,6 +99,8 @@ function mapPayslip(row) {
     bonusPotential:              row.bonus_potential ?? 0,
     pendingTransactions:         row.pending_transactions ?? [],
     creditDelta:                 row.credit_delta ?? 0,
+    // W6: stage the payslip was earned at; null on pre-W6 rows (rendered as economist)
+    stage:                       row.stage ?? null,
   }
 }
 
@@ -641,8 +644,27 @@ export async function addPayslip(payslip) {
     bonus_potential:       payslip.bonusPotential ?? 0,
     pending_transactions:  payslip.pendingTransactions ?? [],
     credit_delta:          payslip.creditDelta ?? 0,
+    stage:                 payslip.stage ?? null,
   }
   throwIfError(await supabase.from('payslips').insert(row))
+}
+
+/**
+ * Settled payslip count per member — drives stage derivation (W6).
+ * Legacy rows predating the status column have NULL status; mapPayslip treats
+ * those as settled, so the query must too.
+ */
+export async function getSettledPayslipCounts(memberIds) {
+  if (!memberIds?.length) return {}
+  const counts = Object.fromEntries(memberIds.map(id => [id, 0]))
+  const { data, error } = await supabase
+    .from('payslips')
+    .select('member_id, status')
+    .in('member_id', memberIds)
+    .or('status.eq.settled,status.is.null')
+  throwIfError({ error })
+  for (const row of data ?? []) counts[row.member_id] = (counts[row.member_id] ?? 0) + 1
+  return counts
 }
 
 export async function rpcSettlePayslip(payslipId) {
@@ -830,7 +852,21 @@ export async function addMember(memberData) {
   }
   const { data, error } = await supabase.from('members').insert(row).select().single()
   throwIfError({ error })
-  return mapMember(data)
+  const member = mapMember(data)
+
+  // W6: while the family has skipped the guided period, new children start at
+  // the overridden stage — apply the cumulative patches immediately.
+  if (member.role === 'child') {
+    try {
+      const family = await getFamily(member.familyId)
+      if (family?.config?.stageOverride) {
+        member.config = await applyStagePatches(member, family.config.stageOverride)
+      }
+    } catch (e) {
+      console.warn('[Artha] stage patch on addMember failed:', e)
+    }
+  }
+  return member
 }
 
 export async function addLoanInterest(memberId, interestRate) {
@@ -1111,6 +1147,53 @@ export async function approveSavingsWithdrawal(requestId, memberId, amount) {
   await resolveMemberRequest(requestId, 'approved')
 }
 
+// ── Stage patches (W6) ────────────────────────────────────────────────────────
+
+/**
+ * Apply the cumulative stage patches through `throughStage` to a child's
+ * member.config, skipping keys in member.config.configTouched. The single
+ * shared write path for all three callers: settle-time advancement,
+ * "Skip the guided period", and addMember under stageOverride.
+ * Returns the new config (or the existing one when nothing changed).
+ */
+export async function applyStagePatches(member, throughStage) {
+  const config = member.config ?? {}
+  const patch  = buildStagePatch(config, throughStage)
+  if (Object.keys(patch).length === 0) return member.config ?? null
+  const newConfig = { ...config, ...patch }
+  await updateMemberConfig(member.id, newConfig)
+  return newConfig
+}
+
+/**
+ * One-shot W6 self-migration for pre-W6 families. Stage-gated keys used to live
+ * in family.config; copy each child's EFFECTIVE values (family.config first,
+ * patch defaults as fallback) into member.config for the keys their stage has
+ * unlocked, then strip the stage-gated keys from family.config. Behaviour-
+ * preserving for children at Economist — the only pre-W6 case in practice.
+ * Idempotent: after the strip, the legacy-key check makes this a no-op.
+ */
+export async function migrateStageConfig(family, children, settledCounts) {
+  const familyConfig = family?.config ?? {}
+  if (!STAGE_GATED_KEYS.some(k => familyConfig[k] !== undefined)) return false
+
+  const patchDefaults = Object.assign({}, ...Object.values(STAGE_PATCHES))
+  for (const child of children) {
+    const stage = deriveStage(settledCounts?.[child.id] ?? 0, familyConfig.stageOverride)
+    const cfg   = child.config ?? {}
+    const patch = {}
+    for (const key of unlockedStageKeys(stage)) {
+      if (cfg[key] === undefined) patch[key] = familyConfig[key] ?? patchDefaults[key]
+    }
+    if (Object.keys(patch).length) await updateMemberConfig(child.id, { ...cfg, ...patch })
+  }
+
+  const stripped = { ...familyConfig }
+  for (const k of STAGE_GATED_KEYS) delete stripped[k]
+  await updateFamilyConfig(family.id, stripped)
+  return true
+}
+
 // ── Per-child economic config ─────────────────────────────────────────────────
 
 export async function updateMemberConfig(memberId, config) {
@@ -1322,6 +1405,7 @@ export async function importAllData(data) {
         bonus_potential: p.bonusPotential ?? 0,
         pending_transactions: p.pendingTransactions ?? [],
         credit_delta: p.creditDelta ?? 0,
+        stage: p.stage ?? null,
       }))
     ))
   }

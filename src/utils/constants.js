@@ -13,6 +13,55 @@ export const DEFAULT_CONFIG = {
   utilityChargeDefault: 5,
 }
 
+// ── Guided period stages (W6) ─────────────────────────────────────────────────
+// Stage is per-child and DERIVED: f(settled payslip count) + family.config.stageOverride.
+// Never stored on the member row.
+export const STAGES = ['starter', 'saver', 'investor', 'economist']
+
+export const STAGE_THRESHOLDS = { starter: 0, saver: 2, investor: 3, economist: 5 }
+
+export const STAGE_LABELS = {
+  starter:   'Starter',
+  saver:     'Saver',
+  investor:  'Investor',
+  economist: 'Economist',
+}
+
+// Config patch applied to the advancing child's member.config when they reach
+// each stage (skipping keys in that child's member.config.configTouched).
+export const STAGE_PATCHES = {
+  saver:     { autoSavePercent: 0.20, interestRate: 0.02 },
+  investor:  { streakBonusEnabled: true },
+  economist: { philanthropyPercent: 0.03 },
+}
+
+// Stage-gated economic keys live ONLY in member.config, never family.config.
+export const STAGE_GATED_KEYS = ['autoSavePercent', 'interestRate', 'philanthropyPercent', 'streakBonusEnabled']
+
+// Feature → minimum stage. Features not listed are available from day one.
+export const FEATURE_STAGES = {
+  // Saver
+  savings:           'saver',
+  autoSave:          'saver',
+  interest:          'saver',
+  savingsProjection: 'saver',
+  sparklines:        'saver',
+  // Investor
+  streaks:   'investor',
+  subGoals:  'investor',
+  analytics: 'investor',
+  netWorth:  'investor',
+  // Economist
+  loans:            'economist',
+  creditScore:      'economist',
+  philanthropy:     'economist',
+  familyFund:       'economist',
+  vacation:         'economist',
+  utilities:        'economist',
+  payPeriod:        'economist',
+  advancedControls: 'economist',
+}
+
 export const CURRENCIES = {
   INR: { symbol: '₹',   name: 'Indian Rupee',      code: 'INR' },
   USD: { symbol: '$',   name: 'US Dollar',          code: 'USD' },

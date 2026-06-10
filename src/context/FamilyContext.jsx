@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
-import { getFamily, getMembers, getChores, getRewards } from '../db/operations'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { getFamily, getMembers, getChores, getRewards, getSettledPayslipCounts, migrateStageConfig } from '../db/operations'
 import { supabase } from '../db/supabase'
 import { DEFAULT_CONFIG } from '../utils/constants'
 import { getFamilyId } from '../utils/family'
@@ -10,12 +10,14 @@ import { addDays, format } from 'date-fns'
 const FamilyContext = createContext(null)
 
 export function FamilyProvider({ children }) {
-  const [family,      setFamily]      = useState(null)
-  const [members,     setMembers]     = useState([])
-  const [chores,      setChores]      = useState([])
-  const [rewards,     setRewards]     = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [reloadCount, setReloadCount] = useState(0)
+  const [family,        setFamily]        = useState(null)
+  const [members,       setMembers]       = useState([])
+  const [chores,        setChores]        = useState([])
+  const [rewards,       setRewards]       = useState([])
+  const [settledCounts, setSettledCounts] = useState(null) // null until first load (stage gating waits)
+  const [loading,       setLoading]       = useState(true)
+  const [reloadCount,   setReloadCount]   = useState(0)
+  const stageMigrationRan = useRef(false)
 
   const loadFamily = useCallback(async () => {
     setLoading(true)
@@ -27,11 +29,23 @@ export function FamilyProvider({ children }) {
         getRewards(getFamilyId()),
       ])
       console.log('[Artha] loadFamily:', { family: fam?.id, members: mems?.length, chores: chs?.length })
+      const childMembers = mems.filter(m => m.role === 'child')
+      const counts = await getSettledPayslipCounts(childMembers.map(m => m.id))
       setFamily(fam)
       setMembers(mems)
       setChores(chs)
       setRewards(rews)
+      setSettledCounts(counts)
       setReloadCount(c => c + 1)
+
+      // W6 one-shot self-migration: move stage-gated keys family.config →
+      // member.config for pre-W6 families. Idempotent; the resulting table
+      // updates re-trigger loadFamily via realtime, which then no-ops.
+      if (fam && !stageMigrationRan.current) {
+        stageMigrationRan.current = true
+        migrateStageConfig(fam, childMembers, counts)
+          .catch(err => console.warn('[Artha] stage config migration failed:', err))
+      }
     } catch (err) {
       console.error('[Artha] loadFamily error:', err)
     } finally {
@@ -68,6 +82,7 @@ export function FamilyProvider({ children }) {
       parents,
       chores,
       rewards,
+      settledCounts,
       loading,
       reloadCount,
       reload: loadFamily,

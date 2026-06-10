@@ -11,6 +11,7 @@ import SavingsGrowthChart from '../../components/SavingsGrowthChart'
 import TopRewardsChart from '../../components/TopRewardsChart'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { CreditScoreLineChart } from '../child/Home'
+import { useStage } from '../../hooks/useStage'
 import { REWARD_CATEGORIES } from '../../utils/constants'
 
 const TYPE_META = {
@@ -226,6 +227,7 @@ export default function ChildDetail() {
   const { periodStart, periodEnd, label: periodLabel } = usePeriod()
 
   const child = children.find(c => c.id === memberId)
+  const { has } = useStage(child)  // W6 feature gating per this child's stage
 
   const [payslips,      setPayslips]      = useState([])
   const [loading,       setLoading]       = useState(true)
@@ -435,7 +437,7 @@ export default function ChildDetail() {
     return { label, value: (b.savings ?? 0) + goalsTotal }
   })
   const savingsProjected = (() => {
-    const rate = (child?.config?.interestRate ?? family?.config?.interestRate) ?? 0.02
+    const rate = (child?.config?.interestRate ?? family?.config?.interestRate) ?? 0
     const periodicSavings = savingsChartData.length > 0
       ? savingsChartData[savingsChartData.length - 1].saved
       : 0
@@ -498,10 +500,12 @@ export default function ChildDetail() {
               <h2 className="text-base font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {child.name}
               </h2>
+              {has('creditScore') && (
               <span className="text-xs font-mono px-1.5 py-0.5 rounded-full"
                 style={{ background: scoreBg, color: scoreColor, border: `1px solid ${scoreBg}` }}>
                 ★ {score}
               </span>
+              )}
             </div>
             <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
               {fmt(child.baseSalary)}/{periodLabel}
@@ -512,13 +516,16 @@ export default function ChildDetail() {
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
 
-        {/* Balance tiles — always shown */}
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label: 'SPENDING',     value: accounts.spending     ?? 0, color: 'var(--positive)' },
-            { label: 'SAVINGS',      value: accounts.savings      ?? 0, color: 'var(--accent-blue)' },
-            { label: 'PHILANTHROPY', value: accounts.philanthropy ?? 0, color: '#D4A017' },
-          ].map(({ label, value, color }) => (
+        {/* Balance tiles — per the child's stage */}
+        {(() => {
+        const tiles = [
+          { label: 'SPENDING',     value: accounts.spending     ?? 0, color: 'var(--positive)' },
+          ...(has('savings')      ? [{ label: 'SAVINGS',      value: accounts.savings      ?? 0, color: 'var(--accent-blue)' }] : []),
+          ...(has('philanthropy') ? [{ label: 'PHILANTHROPY', value: accounts.philanthropy ?? 0, color: '#D4A017' }] : []),
+        ]
+        return (
+        <div className={`grid ${tiles.length === 3 ? 'grid-cols-3' : tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+          {tiles.map(({ label, value, color }) => (
             <div key={label} className="p-3 rounded-xl text-center"
               style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
               <p className="text-xs font-mono" style={{ color: 'var(--text-muted)', fontSize: '9px' }}>{label}</p>
@@ -526,16 +533,22 @@ export default function ChildDetail() {
             </div>
           ))}
         </div>
+        )
+        })()}
 
-        {/* Manage Money — parent action buttons */}
+        {/* Manage Money — parent action buttons (per the child's stage) */}
         <div className="flex flex-col gap-2">
           <p className="text-xs font-mono px-1" style={{ color: 'var(--text-muted)' }}>MANAGE MONEY</p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { id: 'walletToSavings',  label: 'Wallet → Savings',  icon: <PiggyBank size={13} />,       color: 'var(--accent-blue)',  disabled: (accounts.spending ?? 0) <= 0 },
-              { id: 'savingsToWallet',  label: 'Savings → Wallet',  icon: <ArrowUpFromLine size={13} />,  color: 'var(--positive)',     disabled: (accounts.savings  ?? 0) <= 0 },
+              ...(has('savings') ? [
+                { id: 'walletToSavings',  label: 'Wallet → Savings',  icon: <PiggyBank size={13} />,       color: 'var(--accent-blue)',  disabled: (accounts.spending ?? 0) <= 0 },
+                { id: 'savingsToWallet',  label: 'Savings → Wallet',  icon: <ArrowUpFromLine size={13} />,  color: 'var(--positive)',     disabled: (accounts.savings  ?? 0) <= 0 },
+              ] : []),
               { id: 'walletWithdraw',   label: 'Cash / Bank Out',   icon: <Banknote size={13} />,         color: 'var(--warning)',      disabled: (accounts.spending ?? 0) <= 0 },
-              { id: 'donate',           label: 'Donate',            icon: <Heart size={13} />,            color: '#D4A017',             disabled: (accounts.philanthropy ?? 0) <= 0 },
+              ...(has('philanthropy') ? [
+                { id: 'donate',           label: 'Donate',            icon: <Heart size={13} />,            color: '#D4A017',             disabled: (accounts.philanthropy ?? 0) <= 0 },
+              ] : []),
               { id: 'buyReward',        label: 'Buy Reward',        icon: <ShoppingBag size={13} />,      color: '#c084fc',             disabled: (accounts.spending ?? 0) <= 0 },
             ].map(({ id, label, icon, color, disabled }) => (
               <button key={id}
@@ -551,7 +564,7 @@ export default function ChildDetail() {
         </div>
 
         {/* Sub-goals */}
-        {subGoals.length > 0 && (
+        {has('subGoals') && subGoals.length > 0 && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-mono px-1" style={{ color: 'var(--text-muted)' }}>SUB-GOALS</p>
             {subGoals.map(sg => {
@@ -585,7 +598,7 @@ export default function ChildDetail() {
         )}
 
         {/* Loan chip */}
-        {loanOutstanding > 0 && (
+        {has('loans') && loanOutstanding > 0 && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
             style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)' }}>
             <span className="text-sm">🤝</span>
@@ -619,10 +632,11 @@ export default function ChildDetail() {
           </div>
         )}
 
-        {/* Analytics */}
-        {netWorthData.length >= 2 && (
+        {/* Analytics — net worth + full charts at Investor, savings growth from Saver */}
+        {(has('savingsProjection') || has('netWorth')) && netWorthData.length >= 2 && (
           <div className="flex flex-col gap-3">
             <p className="text-xs font-mono px-1" style={{ color: 'var(--text-muted)' }}>ANALYTICS</p>
+            {has('netWorth') && (
             <button onClick={() => setShowNetWorth(true)}
               className="p-4 rounded-xl flex flex-col gap-2 w-full text-left transition-all active:scale-95"
               style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -634,8 +648,9 @@ export default function ChildDetail() {
               </div>
               <NetWorthChart data={netWorthData} />
             </button>
+            )}
             {/* Salary captured vs max (mandatory chores) */}
-            {mandatoryChartData.length > 0 && (
+            {has('analytics') && mandatoryChartData.length > 0 && (
               <div className="p-4 rounded-xl flex flex-col gap-3"
                 style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                 <div>
@@ -681,7 +696,7 @@ export default function ChildDetail() {
             )}
 
             {/* Savings growth + projection */}
-            {savingsActual.length > 0 && (
+            {has('savingsProjection') && savingsActual.length > 0 && (
               <div className="p-4 rounded-xl flex flex-col gap-2"
                 style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                 <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>SAVINGS GROWTH</p>
@@ -690,7 +705,7 @@ export default function ChildDetail() {
             )}
 
             {/* Top rewards spent */}
-            {allTxs.length > 0 && (
+            {has('analytics') && allTxs.length > 0 && (
               <div className="p-4 rounded-xl flex flex-col gap-3"
                 style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                 <div>
@@ -702,7 +717,7 @@ export default function ChildDetail() {
             )}
 
             {/* Income allocation stacked bar */}
-            {allocationChartData.length > 0 && (
+            {has('analytics') && allocationChartData.length > 0 && (
               <div className="p-4 rounded-xl flex flex-col gap-3"
                 style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
                 <div>
@@ -747,7 +762,7 @@ export default function ChildDetail() {
         )}
 
         {/* Bonus chore performance chart */}
-        {bonusChartData.length > 0 && (
+        {has('analytics') && bonusChartData.length > 0 && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-mono px-1" style={{ color: 'var(--text-muted)' }}>BONUS CHORE PERFORMANCE</p>
             <div className="p-4 rounded-xl flex flex-col gap-3"
@@ -792,7 +807,7 @@ export default function ChildDetail() {
         )}
 
         {/* Credit score history chart */}
-        {creditChartData.length >= 2 && (
+        {has('creditScore') && creditChartData.length >= 2 && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-mono px-1" style={{ color: 'var(--text-muted)' }}>CREDIT SCORE HISTORY</p>
             <div className="p-4 rounded-xl flex flex-col gap-2"

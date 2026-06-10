@@ -1,29 +1,42 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 24)
-description: W1–W5 complete + audit fixes A1–A5 done; W6 (stage system) is next
+name: Artha — Launch Blueprint Handoff (post-session 25)
+description: W1–W6 complete (stage system shipped, A10 fixed); W7 (alerts) is next
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ complete. Audit done; A1–A5 fixed (session 24).**
+**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ complete. A1–A5 + A10 fixed.**
 
 ```
-Immediate next action: start W6 — STEP 0 already done (ENGINE_DEFAULTS shipped via A1 fix);
-                       verify against the blueprint spec, then build stage derivation (useStage.js)
-Also: delete src/views/onboarding/Onboarding.jsx (unused), fold A10 into the W6 EconomicControls work
-Pre-req before going live: take a FRESH v4 export → reset → re-onboard with placeholder identities (D17/D19)
-                           (v3 backups predate the A5 restore fixes — don't restore from them)
-Open audit items: A6–A18 (see audit section below) — A6 (stale-balance settle) needs a design decision
+⚠️ BEFORE NEXT PAYSLIP RUN: execute docs/migrations/W6_payslips_stage.sql in the Supabase
+   SQL editor (adds payslips.stage). runPayslip inserts that column now — it FAILS without it.
+Immediate next action: run the migration, smoke-test stages on the dev family
+                       (Backup → Generate Test History, 5 periods walks Starter→Economist),
+                       then start W7 — in-app alerts (blueprint W7 section)
+W7 head start: settlePayslip already returns { settled, stageAdvanced } — the stage_unlocked
+               alert (W7/W9) plugs into that value in the settle wrapper
+Pre-req before going live: FRESH v4 export → reset → re-onboard with placeholder identities (D17/D19)
+Open audit items: A6–A9, A11–A18 — A6 (stale-balance settle) still needs a design decision
 ```
 
-### W6 entry point
-**STEP 0 is done** (session 24 / A1 fix): `calculatePayslip` resolves `{ ...ENGINE_DEFAULTS, ...familyConfig }`
-and `runPayslip` passes `{ ...family.config, ...member.config }` — together the spec'd three-layer merge.
-Unit test in `payslip.test.js`. ⚠️ Interim deviation: `ENGINE_DEFAULTS.streakBonusEnabled` is `true`
-(not `false` per spec) to protect pre-W6 families — W6 stage patches must flip it to `false` once
-member.config backfill exists. Next: stage derivation + `useStage.js`.
-Full spec: `docs/ARTHA-LAUNCH-BLUEPRINT.md` W6 section.
+### W6 — shipped (session 25)
+- Stage = derived per child: `deriveStage(settledCount, family.config.stageOverride)` — never stored.
+  Thresholds: Saver@2, Investor@3, Economist@5. Pure helpers in `src/utils/stages.js`;
+  data (STAGES / STAGE_PATCHES / FEATURE_STAGES / STAGE_GATED_KEYS) in `utils/constants.js`.
+- `useStage(member)` / `useStages()` in `src/hooks/useStage.js`; `FamilyContext` exposes `settledCounts`.
+- Advancement at settle: `settlePayslip` applies the cumulative patch via `applyStagePatches`
+  (shared with Skip-guided-period in More.jsx and `addMember` under `stageOverride`).
+- `ENGINE_DEFAULTS.streakBonusEnabled` is now **false** (interim `true` retired) — safe because
+  `migrateStageConfig` (one-shot, in FamilyContext load) backfills pre-W6 families: copies
+  effective stage-key values into each child's `member.config`, then strips them from `family.config`.
+- `runPayslip` stamps `stage` into drafts; PayslipCard removes rows above the payslip's stage
+  (legacy null = economist/full). Onboarding mock payslip is `stage: 'starter'`.
+- EconomicControls: guided mode pre-Economist (tax/rent/payday-dow/autoSettle/per-child auto-save);
+  all config writes merge + append `configTouched` per layer (A10 fixed); stage-gated keys written
+  only to children whose stage unlocked them.
+- Route guards: ChildStageRoute (/child/savings, /goal, /family-fund), ParentStageRoute
+  (/parent/loans, /tax-fund, /vacation, /utilities).
 
 ---
 
@@ -72,6 +85,8 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 **A8. Onboarding create has no rollback/idempotency.** `createFamily` calls `setFamilyId(familyId)` *before* inserting; if the insert fails, localStorage points at a non-existent family. If `handleCreate` fails partway (child insert, chore insert), retrying creates a **second** family with a new UUID, orphaning the first (`OnboardingFlow.jsx:179–242`, `operations.js:1500`).
 
 **A9. `checkFamilyExists()` is global, contradicting W4/W5 direction.** Any family row in the DB routes every new device to 'join' — a second family can permanently never onboard (`operations.js:1489`, used in `App.jsx:87`). Acceptable single-family stopgap, but must become a per-device decision before distribution; flagging so it isn't forgotten.
+
+> **✅ A10 fixed (2026-06-11, session 25, as part of W6).** All EconomicControls writes now merge into the existing config (vacation + stage keys survive) and append changed keys to that layer's `configTouched`; "Reset to defaults" preserves vacation and re-seeds stage patches.
 
 **A10. EconomicControls clobbers `member.config.vacation` (and future W6 stage keys).** "Same for all" save clears child configs via `updateMemberConfig(ch.id, null)`; per-child save replaces the whole config with just `economicFields` (`EconomicControls.jsx:186–197`). Either path wipes the `vacation` flag written by `setMemberVacation`. W6's per-child stage-gated keys will live in the same object — this write pattern must become a merge.
 
@@ -123,7 +138,15 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 - PWA manifest + `<title>` + apple meta renamed to "Arto"
 - `Onboarding.jsx` (old) still present — delete before W6
 
-**W6–W9:** not started.
+**W6 ✅** — Stage system / guided period (session 25).
+- Derived stages + thresholds; `useStage`/`useStages`; per-child settled counts in FamilyContext
+- `applyStagePatches` shared helper (settle advancement / skip-guided / addMember-under-override)
+- `migrateStageConfig` one-shot self-migration for pre-W6 families; `ENGINE_DEFAULTS.streakBonusEnabled` now `false`
+- Stage stamped in payslip drafts (**requires `docs/migrations/W6_payslips_stage.sql`**); stage-aware PayslipCard
+- Child + parent surfaces gated per feature map; route guards; "Skip the guided period" in More
+- EconomicControls guided mode + merge writes + `configTouched` (A10 fixed)
+
+**W7–W9:** not started.
 
 **Roadmap position:**
 - [x] Phases 1–5: Core payroll, credit, loans, rewards, analytics, device auth
@@ -150,8 +173,8 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 | W3 | Auto-run drafts + zero-case hardening + first-settle flow | ✅ done | W2 |
 | W4 | Dynamic family_id + dev-device self-migration | ✅ done | — |
 | W5 | Onboarding flow (incl. device handoff) | ✅ done | W3, W4 |
-| W6 | Stage system / guided period | **next** | W5 |
-| W7 | In-app alerts (table + bell + banners) | pending | W6 |
+| W6 | Stage system / guided period | ✅ done | W5 |
+| W7 | In-app alerts (table + bell + banners) | **next** | W6 |
 | W8 | First-week checklist + empty states | pending | W5, W7 |
 | W9 | Stage celebrations + guided-period graduation | pending | W6, W7 |
 
@@ -187,23 +210,15 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 - `settlePayslip` in `payslip.js` delegates entirely to `rpcSettlePayslip` from `operations.js`
 - Tax fund update uses atomic increment (`balance = balance + delta`) — not read-modify-write
 
-### Architecture decisions (not yet in code)
-
-**Dynamic family_id (W4):**
-- New `src/utils/family.js` with `getFamilyId()` / `setFamilyId()`
-- `getFamilyId()` reads from `localStorage('artha_family_id')`, falls back to `VITE_DEV_FAMILY_ID` in DEV
-- DeviceGate self-migrates existing claimed devices by backfilling from cached claim
-- `FAMILY_ID` constant deleted entirely after mechanical replacement
-
-**Stage system (W6) — critical design rules:**
-- Stage is per-child and **derived** (not stored): `stage = f(settled payslip count)` + `family.config.stageOverride`
-- Stage-gated economic keys (`autoSavePercent`, `interestRate`, `streakBonusEnabled`, `philanthropyPercent`) live **only in `member.config`**, never `family.config`
-- Engine resolves config as: `{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }` — **✅ shipped session 24 (A1 fix)**
-- ENGINE_DEFAULTS: `{ autoSavePercent: 0, interestRate: 0, philanthropyPercent: 0, streakBonusEnabled: false }`
-  — shipped with `streakBonusEnabled: true` interim (see audit A1 note); W6 stage patches flip it to `false`
-- Stage patches applied via shared `applyStagePatches(child, throughStage)` helper
-- Guided period thresholds (weekly): Saver@2, Investor@3, Economist@5
-- `payPeriod` locked to `'weekly'` until Economist (D16)
+**Stage system (W6) — ✅ all in code (session 25):**
+- Stage is per-child and **derived** (not stored): `deriveStage(settledCount, family.config.stageOverride)` in `src/utils/stages.js`
+- Stage-gated economic keys (`autoSavePercent`, `interestRate`, `streakBonusEnabled`, `philanthropyPercent`) live **only in `member.config`** — `migrateStageConfig` moved pre-W6 values out of `family.config` (effective values, then strip)
+- Engine resolves config as: `{ ...ENGINE_DEFAULTS, ...family.config, ...member.config }`
+- ENGINE_DEFAULTS: `{ autoSavePercent: 0, interestRate: 0, philanthropyPercent: 0, streakBonusEnabled: false }` — final spec values
+- Stage patches via shared `applyStagePatches(child, throughStage)` (operations.js) — three callers: settle advancement, Skip guided period, addMember under override; `configTouched` (per layer) protects parent edits
+- Guided period thresholds (weekly): Saver@2, Investor@3, Economist@5; `payPeriod` locked `'weekly'` until Economist (D16)
+- `settlePayslip` returns `{ settled, stageAdvanced }` — W9 celebrations consume `stageAdvanced`
+- Settled counts treat legacy NULL `status` as settled (matches `mapPayslip`)
 
 **Guided period stages:**
 
@@ -257,7 +272,9 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 | `docs/handoffs/HANDOFF.md` | **← this file** (not root HANDOFF.md) |
 | `src/views/onboarding/OnboardingFlow.jsx` | **NEW (W5)** — replaces Onboarding.jsx |
 | `src/utils/family.js` | **NEW (W4)** — `getFamilyId()` / `setFamilyId()` |
-| `src/hooks/useStage.js` | **NEW (W6)** — derived stage + feature gating |
+| `src/hooks/useStage.js` | **NEW (W6 ✅)** — `useStage` / `useStages` hooks |
+| `src/utils/stages.js` | **NEW (W6 ✅)** — pure stage derivation + patch computation |
+| `docs/migrations/W6_payslips_stage.sql` | **NEW (W6 ✅)** — `payslips.stage` column (RUN IN SUPABASE) |
 | `src/components/AlertBell.jsx` | **NEW (W7)** — bell icon + unread badge + feed sheet |
 | `src/components/EventBanner.jsx` | **NEW (W7)** — stacked dismissible banners |
 | `src/components/FirstWeekChecklist.jsx` | **NEW (W8)** — parent dashboard getting-started card |
