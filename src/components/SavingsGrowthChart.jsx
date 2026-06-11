@@ -1,17 +1,13 @@
+import EmptyChartNote from './EmptyChartNote'
+
 // SVG two-line chart: actual savings history (solid) + projected growth (dashed)
 // actualData: [{ label, value }]   — settled payslips
 // projected:  [{ label, value }]   — future periods
 export default function SavingsGrowthChart({ actualData = [], projected = [] }) {
+  // With 0–1 settled payslips a projection from a (near-)zero balance is just a
+  // flat line — show the friendly note until real history exists (W8).
+  if (actualData.length < 2) return <EmptyChartNote />
   const allData = [...actualData, ...projected]
-  if (allData.length < 2) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <p style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'monospace' }}>
-          Not enough data yet
-        </p>
-      </div>
-    )
-  }
 
   const W = 300, H = 90, PAD_L = 4, PAD_R = 36, PAD_T = 10, PAD_B = 18
   const inner_w = W - PAD_L - PAD_R

@@ -1,26 +1,41 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 26)
-description: W1–W7 complete (alerts shipped); W7 SQL migration must run in Supabase; W8 (checklist + empty states) is next
+name: Artha — Launch Blueprint Handoff (post-session 27)
+description: W1–W8 complete (first-week checklist + empty states shipped); W9 (celebration styling + graduation pass) is the last workstream
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ W7 ✅ complete. A1–A5 + A10 fixed.**
+**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ W7 ✅ W8 ✅ complete. A1–A5 + A10 fixed.**
 
 ```
 W7 SQL migration (docs/migrations/W7_alerts.sql) ✅ run in Supabase 2026-06-11.
 W6 SQL migration (W6_payslips_stage.sql) ✅ run in Supabase 2026-06-11.
-Immediate next action: smoke-test W6+W7 together on the dev family
-                       (Backup → Generate Test History, 5 periods walks Starter→Economist
-                       AND fires first_payslip / payslip_settled / 3× stage_unlocked alerts),
-                       then start W8 — first-week checklist + empty states (blueprint W8)
-W9 note: stage_unlocked ALERTS already fire from the settle wrapper (W9 copy inline in
-         payslip.js as STAGE_UNLOCKED_COPY) — W9's remaining scope is the celebratory
-         banner styling in EventBanner + verifying the graduation flow
-Pre-req before going live: FRESH v4 export → reset → re-onboard with placeholder identities (D17/D19)
+Immediate next action: W9 — the LAST workstream, mostly done already:
+  1. celebratory banner styling in EventBanner.jsx (key off type === 'stage_unlocked')
+  2. verify More.jsx Skip-guided-period confirm copy matches the W9 spec text
+  3. end-to-end graduation pass (Generate Test History 5 periods = stages + alerts smoke test)
+After W9: launch blueprint is code-complete → FRESH v4 export → reset → re-onboard with
+          placeholder identities (D17/D19) → Phase A testing
+W8 note: checklist/first-payday cards only show on families with 0 settled payslips —
+         verify them during the D17 re-onboard, not on the dev family
 Open audit items: A6–A9, A11–A18 — A6 (stale-balance settle) still needs a design decision
 ```
+
+### W8 — shipped (session 27)
+- `FirstWeekChecklist.jsx` on the parent Dashboard (until ANY settled payslip): family created ✓,
+  per-child device login (→ Invite Code), first chore logged (hint), first chore approved
+  (→ Approve), ⏳ first payday (day name from `paydayDow`). Data: new `getFirstWeekProgress`
+  op (device_claims + limit-1 chore_logs probes) + FamilyContext `settledCounts`.
+- Bonus-chore hint (D7) after first settle — hidden once an active bonus chore exists;
+  dismissal permanent per device (`artha_bonus_hint_dismissed`).
+- Child Home first-payday card (until that child's first settled payslip; steps aside while
+  a draft is pending): payday day name + "[N] chores done so far this week" (pending counts).
+- Empty-state audit: shared `EmptyChartNote` ("Charts appear after a couple of paydays") in
+  NetWorthChart / SavingsGrowthChart / CreditScoreLineChart / SpendingBreakdown / TopRewardsChart;
+  SavingsGrowthChart now needs 2 ACTUAL points (projection-only was a flat zero line);
+  bar charts render 1-point fine and stay gated at call sites; Sparkline keeps its dashed mini
+  placeholder. Main exposure was Skip-guided-period (all charts unlock with zero history).
 
 ### W7 — shipped (session 26)
 - `alerts` table (13th) — `docs/migrations/W7_alerts.sql`. **Deviation:** dedupe_key has a FULL
@@ -178,7 +193,12 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 - Absorbed: drafted/overdue Dashboard banners, ChildShell reward toast
 - stage_unlocked alerts already firing (W9 copy inline in payslip.js)
 
-**W8–W9:** not started.
+**W8 ✅** — First-week checklist + empty states (session 27).
+- `FirstWeekChecklist.jsx` + `getFirstWeekProgress` op; bonus-chore hint (D7); child first-payday card
+- `EmptyChartNote` across all chart components; SavingsGrowthChart needs 2 actual points
+
+**W9:** not started — only celebratory banner styling + graduation verification remain
+(stage_unlocked alerts already fire with final copy from the settle wrapper).
 
 **Roadmap position:**
 - [x] Phases 1–5: Core payroll, credit, loans, rewards, analytics, device auth
@@ -207,8 +227,8 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 | W5 | Onboarding flow (incl. device handoff) | ✅ done | W3, W4 |
 | W6 | Stage system / guided period | ✅ done | W5 |
 | W7 | In-app alerts (table + bell + banners) | ✅ done | W6 |
-| W8 | First-week checklist + empty states | **next** | W5, W7 |
-| W9 | Stage celebrations + guided-period graduation | pending (alerts already fire; styling left) | W6, W7 |
+| W8 | First-week checklist + empty states | ✅ done | W5, W7 |
+| W9 | Stage celebrations + guided-period graduation | **next** (alerts already fire; styling left) | W6, W7 |
 
 Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 
@@ -313,7 +333,8 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 | `src/components/EventBanner.jsx` | **NEW (W7 ✅)** — stacked dismissible banners (max 2, priority) |
 | `src/hooks/useAlerts.js` | **NEW (W7 ✅)** — alert feed hook + `alertRoute(alert, role)` |
 | `docs/migrations/W7_alerts.sql` | **NEW (W7 ✅)** — alerts table (RUN IN SUPABASE before deploy) |
-| `src/components/FirstWeekChecklist.jsx` | **NEW (W8)** — parent dashboard getting-started card |
+| `src/components/FirstWeekChecklist.jsx` | **NEW (W8 ✅)** — parent dashboard getting-started card |
+| `src/components/EmptyChartNote.jsx` | **NEW (W8 ✅)** — shared chart empty-state placeholder |
 | `src/components/InviteCodePanel.jsx` | **NEW (W5)** — shared extraction from InviteCode.jsx |
 
 ---

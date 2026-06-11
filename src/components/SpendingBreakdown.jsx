@@ -1,3 +1,5 @@
+import EmptyChartNote from './EmptyChartNote'
+
 // SVG donut chart — "where does money go" breakdown by transaction type
 // data: [{ label, value, color }]
 
@@ -62,13 +64,7 @@ export default function SpendingBreakdown({ transactions = [] }) {
   const total = items.reduce((s, c) => s + c.value, 0)
 
   if (items.length === 0 || total === 0) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <p style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'monospace' }}>
-          No transactions yet
-        </p>
-      </div>
-    )
+    return <EmptyChartNote text="No spending yet — the breakdown appears once money moves" />
   }
 
   const SIZE = 120, cx = SIZE / 2, cy = SIZE / 2, r = SIZE * 0.38, innerR = SIZE * 0.22

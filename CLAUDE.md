@@ -55,6 +55,7 @@ Household economy PWA for kids — salary, chores, savings, loans, rewards, cred
 - Period dates: `usePeriod()` hook → `{ periodStart, periodEnd, progressPeriodStart, progressPeriodEnd, paydayToday }`
 - Bottom sheets defined inline in the view file, not as separate component files
 - `src/components/` — shared display-only components (charts, cards); no business logic
+- Chart empty states: every chart renders `<EmptyChartNote />` (W8) when history is too thin (<2 settled payslips) — never broken axes; matters most on the "Skip the guided period" path where all charts unlock with zero history
 
 ## Milestones
 - [x] Phase 1: Core payroll engine, payslip system

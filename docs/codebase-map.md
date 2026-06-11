@@ -248,6 +248,12 @@ Migration utility for moving data from an earlier Dexie/IndexedDB schema to Supa
 ### `src/components/EventBanner.jsx`
 **NEW (W7).** Stacked dismissible banners at the top of Dashboard / child Home. Takes alert rows (dismiss writes `dismissed_at`) plus computed items (`chores_due`, `approvals_pending` — no table row; dismissal is per-device-per-day in localStorage). Max 2 visible; priority payslip > stage > chores/approvals.
 
+### `src/components/FirstWeekChecklist.jsx`
+**NEW (W8).** Parent Dashboard "Getting Started" card, shown until the family has any settled payslip. Self-contained: reads `useFamily` (`settledCounts`) + `getFirstWeekProgress` (device_claims, chore_logs probes). Rows tap through to Invite Code / Approve.
+
+### `src/components/EmptyChartNote.jsx`
+**NEW (W8).** Shared friendly placeholder for charts with <2 settled payslips of history ("Charts appear after a couple of paydays") — used by NetWorthChart, SavingsGrowthChart, CreditScoreLineChart, SpendingBreakdown, TopRewardsChart. Exists chiefly for the Skip-guided-period path, where every chart unlocks with zero history.
+
 ## 4. Scaffolding / Config
 
 Files that are setup boilerplate and rarely need to change.

@@ -1,15 +1,9 @@
+import EmptyChartNote from './EmptyChartNote'
+
 // SVG mini line chart — net worth over settled payslips
 // data: [{ label: string, value: number }]
 export default function NetWorthChart({ data = [] }) {
-  if (data.length < 2) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <p style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'monospace' }}>
-          Not enough data yet
-        </p>
-      </div>
-    )
-  }
+  if (data.length < 2) return <EmptyChartNote />
 
   const W = 300, H = 80, PAD_L = 4, PAD_R = 4, PAD_T = 8, PAD_B = 20
 
@@ -29,12 +23,6 @@ export default function NetWorthChart({ data = [] }) {
   const first   = points[0]
 
   // Area fill path
-  const areaPath = `M ${first.x} ${H - PAD_B} L ${linePts.replace(/\d+\.\d+,/g, match => match).split(' ').map(pt => {
-    const [x, y] = pt.split(',')
-    return `${x},${y}`
-  }).join(' L ')} L ${last.x} ${H - PAD_B} Z`
-
-  // Simpler area path
   const areaD = [
     `M ${first.x.toFixed(1)} ${(H - PAD_B).toFixed(1)}`,
     ...points.map(p => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`),

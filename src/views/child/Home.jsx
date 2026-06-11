@@ -12,6 +12,7 @@ import { useStage } from '../../hooks/useStage'
 import { useAlerts, alertRoute } from '../../hooks/useAlerts'
 import AlertBell from '../../components/AlertBell'
 import EventBanner from '../../components/EventBanner'
+import EmptyChartNote from '../../components/EmptyChartNote'
 import { ChevronRight, X, Landmark } from 'lucide-react'
 import CreditScorePopup from '../../components/CreditScorePopup'
 import NetWorthChart from '../../components/NetWorthChart'
@@ -68,15 +69,7 @@ function Sparkline({ data, color }) {
 // ── Credit score line chart (shared by child Home + parent ChildDetail) ───────
 // SVG-based, same style as NetWorthChart but with band-coloured segments + dots.
 export function CreditScoreLineChart({ data }) {
-  if (!data || data.length < 2) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <p style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'monospace' }}>
-          Not enough data yet
-        </p>
-      </div>
-    )
-  }
+  if (!data || data.length < 2) return <EmptyChartNote />
 
   const bandColor  = (s) => s >= 700 ? '#4ade80' : s >= 500 ? '#D4A017' : '#f87171'
   const bandLabel  = (s) => s >= 700 ? '≥700'    : s >= 500 ? '≥500'    : '<500'
@@ -723,10 +716,11 @@ export default function ChildHome() {
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { periodStart, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
-  const { has } = useStage(currentMember)  // W6 feature gating
+  const { has, settledCount, loading: stageLoading } = useStage(currentMember)  // W6 feature gating
   const { banners, markRead, dismiss } = useAlerts()  // W7 alert rows for banners
 
   const [choresDueCount,  setChoresDueCount]  = useState(0)
+  const [choresThisWeek,  setChoresThisWeek]  = useState(0)
   const [projected,       setProjected]       = useState(null)
   const [streak,          setStreak]          = useState(0)
   const [showPrepay,      setShowPrepay]      = useState(false)
@@ -809,6 +803,8 @@ export default function ChildHome() {
       )
       const streakDays = calculateStreak(streakLogs, mandatoryChores)
       setStreak(streakDays)
+      // W8 first-payday card: chores done so far this period (pending counts)
+      setChoresThisWeek(choreLogs.filter(l => l.status !== 'rejected').length)
 
       const effectiveConfig = currentMember.config
         ? { ...family.config, ...currentMember.config }
@@ -1057,6 +1053,23 @@ export default function ChildHome() {
           onDismiss={a => dismiss(a.id)}
           onTap={a => { markRead(a.id); navigate(alertRoute(a, 'child')) }}
         />
+
+        {/* W8 — first-payday card: shown until the first settled payslip;
+            steps aside once the first draft is waiting (its banner takes over) */}
+        {!stageLoading && settledCount === 0 && latestPayslip?.status !== 'draft' && (
+          <div className="px-4 py-3 rounded-xl flex flex-col gap-1"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-bright)' }}>
+            <p className="text-sm font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+              🗓️ Your first payday is {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][family?.config?.paydayDow ?? 6]}
+            </p>
+            <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+              Every chore you do this week becomes money.
+            </p>
+            <p className="text-xs font-mono mt-1" style={{ color: choresThisWeek > 0 ? 'var(--positive)' : 'var(--text-dim)' }}>
+              {choresThisWeek} chore{choresThisWeek === 1 ? '' : 's'} done so far this week
+            </p>
+          </div>
+        )}
 
         {/* Vacation banner */}
         {currentMember?.config?.vacation?.active && (

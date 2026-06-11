@@ -11,6 +11,7 @@ import { getFamilyId } from '../../utils/family'
 import PayslipCard from '../../components/PayslipCard'
 import AlertBell from '../../components/AlertBell'
 import EventBanner from '../../components/EventBanner'
+import FirstWeekChecklist from '../../components/FirstWeekChecklist'
 import { useAlerts, alertRoute } from '../../hooks/useAlerts'
 import { useStage, useStages } from '../../hooks/useStage'
 import { stageHasFeature } from '../../utils/stages'
@@ -579,7 +580,7 @@ function PayslipSheet({ child, onClose, onSettle }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ParentDashboard() {
   const { currentMember } = useAuth()
-  const { family, children, chores, reload, reloadCount } = useFamily()
+  const { family, children, chores, settledCounts, reload, reloadCount } = useFamily()
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { paydayToday: payday, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
@@ -594,7 +595,23 @@ export default function ParentDashboard() {
   const [allRan,               setAllRan]               = useState(false)
   const [pendingApprovals,     setPendingApprovals]     = useState(0)
   const [showAutoSettlePrompt, setShowAutoSettlePrompt] = useState(false)
+  const [bonusHintDismissed,   setBonusHintDismissed]   = useState(
+    () => !!localStorage.getItem('artha_bonus_hint_dismissed')
+  )
   const autoRanRef = useRef(false)
+
+  // W8 (D7): bonus-chore hint — after the first settle, until the parent adds
+  // a bonus chore or dismisses it (permanent, per device)
+  const showBonusHint = !bonusHintDismissed &&
+    settledCounts !== null &&
+    Object.values(settledCounts).some(n => n > 0) &&
+    !chores.some(c => c.type === 'bonus' && c.isActive) &&
+    children.length > 0
+
+  const dismissBonusHint = () => {
+    try { localStorage.setItem('artha_bonus_hint_dismissed', '1') } catch { /* private mode */ }
+    setBonusHintDismissed(true)
+  }
 
   // Auto-run always on payday; auto-settle if family.config.autoSettle is true.
   // First-settle prompt fires when autoSettle is undefined (key not yet set).
@@ -801,6 +818,31 @@ export default function ParentDashboard() {
           onDismiss={a => dismiss(a.id)}
           onTap={a => { markRead(a.id); navigate(alertRoute(a, 'parent')) }}
         />
+
+        {/* W8 — Getting Started card (hides after the first settled payslip) */}
+        <FirstWeekChecklist />
+
+        {/* W8 (D7) — bonus-chore hint after the first settle */}
+        {showBonusHint && (
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-bright)' }}>
+            <button onClick={() => navigate('/parent/chores')}
+              className="flex-1 min-w-0 text-left"
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+              <p className="text-xs font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+                💡 Did you know? Bonus chores let {children[0]?.name ?? 'your child'} earn extra beyond their salary.
+              </p>
+              <p className="text-xs font-mono mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Add one in Chores.
+              </p>
+            </button>
+            <button onClick={dismissBonusHint} aria-label="Dismiss"
+              className="shrink-0 p-0.5"
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Tax Fund — view unlocks at Economist; tax still accrues silently before */}
         {family && familyHas('familyFund') && (

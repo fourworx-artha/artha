@@ -862,6 +862,25 @@ export async function addPayslip(payslip) {
 }
 
 /**
+ * First-week checklist progress (W8) — all derived from existing data, no new
+ * table. claimedMemberIds: children who have logged in on a device;
+ * anyChoreLog / anyChoreApproved: family-wide firsts.
+ */
+export async function getFirstWeekProgress(memberIds) {
+  if (!memberIds?.length) return { claimedMemberIds: [], anyChoreLog: false, anyChoreApproved: false }
+  const [claims, anyLog, anyApproved] = await Promise.all([
+    supabase.from('device_claims').select('member_id').in('member_id', memberIds),
+    supabase.from('chore_logs').select('id').in('member_id', memberIds).limit(1),
+    supabase.from('chore_logs').select('id').in('member_id', memberIds).eq('status', 'approved').limit(1),
+  ])
+  return {
+    claimedMemberIds: [...new Set((claims.data ?? []).map(r => r.member_id))],
+    anyChoreLog:      (anyLog.data ?? []).length > 0,
+    anyChoreApproved: (anyApproved.data ?? []).length > 0,
+  }
+}
+
+/**
  * Settled payslip count per member — drives stage derivation (W6).
  * Legacy rows predating the status column have NULL status; mapPayslip treats
  * those as settled, so the query must too.

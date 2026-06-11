@@ -1,3 +1,5 @@
+import EmptyChartNote from './EmptyChartNote'
+
 // Top 5 rewards by cumulative spend — horizontal bar list
 export default function TopRewardsChart({ transactions = [], fmt }) {
   const groups = {}
@@ -13,11 +15,7 @@ export default function TopRewardsChart({ transactions = [], fmt }) {
     .slice(0, 5)
 
   if (top5.length === 0) {
-    return (
-      <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-dim)', textAlign: 'center', padding: '12px 0' }}>
-        No reward purchases yet
-      </p>
-    )
+    return <EmptyChartNote text="No reward purchases yet" />
   }
 
   const max = top5[0][1]
