@@ -20,8 +20,8 @@ const items = [
   { icon: Download,         label: 'Backup & Restore',  sub: 'Export / import family data',           to: '/parent/backup'       },
 ]
 
-// ── Skip guided period confirm sheet (W6) ─────────────────────────────────────
-function SkipGuidedSheet({ childCount, onConfirm, onClose }) {
+// ── Skip guided period confirm sheet (W6; copy per W9 spec) ────────────────────
+function SkipGuidedSheet({ onConfirm, onClose }) {
   const [busy, setBusy] = useState(false)
   const handleConfirm = async () => {
     setBusy(true)
@@ -47,13 +47,13 @@ function SkipGuidedSheet({ childCount, onConfirm, onClose }) {
         </div>
         <div className="px-4 py-4 flex flex-col gap-4">
           <p className="text-sm font-mono" style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
-            This unlocks everything at once — savings, interest, streak bonuses,
-            sub-goals, loans, credit score and philanthropy — for{' '}
-            {childCount === 1 ? 'your child' : `all ${childCount} children`}, with
-            the standard rates (20% auto-save, 2% interest, 3% philanthropy).
+            This unlocks everything immediately — loans, credit score, philanthropy,
+            and all economic controls — and sets the standard rates (20% auto-save,
+            2% savings interest, 3% philanthropy) for every child. You can adjust
+            all of them in Economic Controls.
           </p>
           <p className="text-xs font-mono" style={{ color: 'var(--text-dim)', lineHeight: '1.6' }}>
-            The guided period introduces one concept per payday so each idea lands.
+            Most families enjoy the five-payday guided journey.
             Skipping can't be undone.
           </p>
           <div className="flex gap-3">
@@ -157,7 +157,6 @@ export default function More() {
 
       {showSkipSheet && (
         <SkipGuidedSheet
-          childCount={children.length}
           onConfirm={handleSkipGuided}
           onClose={() => setShowSkipSheet(false)}
         />

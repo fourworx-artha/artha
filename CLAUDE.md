@@ -36,6 +36,8 @@ Household economy PWA for kids — salary, chores, savings, loans, rewards, cred
 - (2026-06-11) `chores_due` and `approvals_pending` are COMPUTED banners — derived on load, no alerts row; dismissal is per-device-per-day via localStorage (`artha_banner_dismissed:{key}:{date}`)
 - (2026-06-11) Alerts are ephemera: never exported in backups, cleared on reset and on import, pruned client-side after 30 days (`deleteOldAlerts`, 24h localStorage guard `artha_alerts_pruned_at`). Settling a payslip retires its `payslip_ready`/`payslip_overdue` alerts (read + dismissed)
 - (2026-06-11) W7 absorbed three local UI notices into alert rows: Dashboard's "drafted" banner → `payslip_ready`, Dashboard's overdue banner → `payslip_overdue` (dedupe `overdue:{payslipId}`), ChildShell's reward toast → `reward_approved` banner
+- (2026-06-11) W9: stage celebrations are a styling variant inside `EventBanner.jsx` keyed off `type === 'stage_unlocked'` (gold/`--warning` treatment) — no new component or schema; the alert rows (fired from the settle wrapper since W7) carry everything needed
+- (2026-06-11) D17 executed WITHOUT a backup — Dev discarded all historical family data; full wipe via `docs/migrations/D17_wipe_all.sql` (TRUNCATE all 13 tables), not the in-app reset (which keeps the family row and would block onboarding per A9). Re-onboard with placeholder identities is the next step
 
 ## Key Business Rules
 - `mapReward` maps DB `cost` → JS `price` — never use `.cost` in UI or forms
@@ -64,8 +66,8 @@ Household economy PWA for kids — salary, chores, savings, loans, rewards, cred
 - [x] Phase 3.5: Settle/approve flow, period progress bars, ledger, philanthropy, sub-goals, utilities, economic controls
 - [x] Phase 4: Analytics charts — net worth, credit gauge, savings projection, spending breakdown, tax fund thermometer, sparklines, family fund, bonus chore chart, top rewards
 - [x] Phase 5: Device auth — invite codes, DeviceGate, JoinFamily, P2 parent support, vacation mode
-- [ ] **Pre-distribution (Launch Blueprint — W1–W9):** accounts validation, atomic settlement RPC, auto-run payslips + first-settle teaching flow, dynamic family_id, guided onboarding (Arto branding, device handoff), guided period / stage system, in-app alerts (banners + bell), first-week checklist + empty states, stage celebrations
-- [ ] Phase A: Personal testing — use placeholder names + throwaway PINs (RLS is off; real identities only after Phase B2); test all features, fix bugs, polish UI/UX
+- [x] **Pre-distribution (Launch Blueprint — W1–W9): code-complete** (2026-06-11) — accounts validation, atomic settlement RPC, auto-run payslips + first-settle teaching flow, dynamic family_id, guided onboarding (Arto branding, device handoff), guided period / stage system, in-app alerts (banners + bell), first-week checklist + empty states, stage celebrations; fresh-family verification pass pending (re-onboard → Generate Test History ×5 → DoD checklist)
+- [ ] Phase A: Personal testing — use placeholder names + throwaway PINs (RLS is off; real identities only after Phase B2); test all features, fix bugs, polish UI/UX. **DB was wiped 2026-06-11 (D17, no backup) — starts with the fresh re-onboard**
 - [ ] Phase B2: Multi-tenant architecture — RLS on all 12 tables + realtime channel `family_id` filters (dynamic family_id is pulled forward into pre-distribution work)
 - [ ] Phase C: Supabase Auth for founding parent — email + password; JWT carries family_id; account deletion flow
 - [ ] Phase D: Legal & compliance — Privacy Policy, ToS, account deletion, COPPA/GDPR-K declarations; URLs reserved at `fourworx.com/arto/privacy` and `fourworx.com/arto/terms`

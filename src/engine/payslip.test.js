@@ -225,6 +225,17 @@ describe('stage derivation', () => {
     expect(deriveStage(3, 'bogus')).toBe('investor')
   })
 
+  it('W9 graduation: five settles fire exactly three celebrations (saver, investor, economist)', () => {
+    // Mirrors settlePayslip's advancement detection: before = count-1, after = count.
+    const advancements = []
+    for (let count = 1; count <= 5; count++) {
+      const before = deriveStage(count - 1)
+      const after  = deriveStage(count)
+      if (stageRank(after) > stageRank(before)) advancements.push(after)
+    }
+    expect(advancements).toEqual(['saver', 'investor', 'economist'])
+  })
+
   it('feature gating follows the feature → stage map', () => {
     expect(stageHasFeature('starter', 'rewards')).toBe(true)   // unlisted = always
     expect(stageHasFeature('starter', 'savings')).toBe(false)

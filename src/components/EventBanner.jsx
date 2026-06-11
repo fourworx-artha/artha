@@ -53,15 +53,25 @@ export default function EventBanner({ banners = [], computed = [], onDismiss, on
 
   return (
     <div className="flex flex-col gap-2">
-      {items.map(item => (
+      {items.map(item => {
+        // W9: stage_unlocked banners get a distinct celebratory (gold) treatment.
+        const celebration = item.type === 'stage_unlocked'
+        return (
         <div key={item.key} className="flex items-start gap-2 px-3 py-2.5 rounded-xl"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-bright)' }}>
+          style={celebration
+            ? {
+                background: 'linear-gradient(135deg, rgba(251,191,36,0.14), rgba(251,191,36,0.04)), var(--bg-surface)',
+                border: '1px solid rgba(251,191,36,0.45)',
+                boxShadow: '0 0 16px rgba(251,191,36,0.10)',
+              }
+            : { background: 'var(--bg-surface)', border: '1px solid var(--border-bright)' }}>
           <button
             onClick={item.onTap ?? undefined}
             disabled={!item.onTap}
             className="flex-1 min-w-0 text-left"
             style={{ background: 'none', border: 'none', padding: 0, cursor: item.onTap ? 'pointer' : 'default' }}>
-            <p className="text-xs font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <p className="text-xs font-mono font-semibold"
+              style={{ color: celebration ? 'var(--warning)' : 'var(--text-primary)' }}>
               {item.title}
             </p>
             {item.body && (
@@ -76,7 +86,8 @@ export default function EventBanner({ banners = [], computed = [], onDismiss, on
             <X size={14} />
           </button>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

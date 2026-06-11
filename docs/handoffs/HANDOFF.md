@@ -1,26 +1,54 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 27)
-description: W1–W8 complete (first-week checklist + empty states shipped); W9 (celebration styling + graduation pass) is the last workstream
+name: Artha — Launch Blueprint Handoff (post-session 28)
+description: W1–W9 ALL complete — launch blueprint code-complete; DB wiped (D17, no backup); next session = re-onboard fresh + verification pass → Phase A
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ W7 ✅ W8 ✅ complete. A1–A5 + A10 fixed.**
+**W1–W9 ALL ✅ — the Launch Blueprint is code-complete. The Supabase DB was WIPED
+(D17_wipe_all.sql run 2026-06-11, NO backup — Dev chose to discard the data).
+The app currently has ZERO families; devices still hold stale localStorage.**
 
 ```
-W7 SQL migration (docs/migrations/W7_alerts.sql) ✅ run in Supabase 2026-06-11.
-W6 SQL migration (W6_payslips_stage.sql) ✅ run in Supabase 2026-06-11.
-Immediate next action: W9 — the LAST workstream, mostly done already:
-  1. celebratory banner styling in EventBanner.jsx (key off type === 'stage_unlocked')
-  2. verify More.jsx Skip-guided-period confirm copy matches the W9 spec text
-  3. end-to-end graduation pass (Generate Test History 5 periods = stages + alerts smoke test)
-After W9: launch blueprint is code-complete → FRESH v4 export → reset → re-onboard with
-          placeholder identities (D17/D19) → Phase A testing
-W8 note: checklist/first-payday cards only show on families with 0 settled payslips —
-         verify them during the D17 re-onboard, not on the dev family
+Immediate next actions (the re-onboard, in order):
+  1. On EVERY device (parent phones + each child device): clear site data /
+     localStorage.clear() → reload. All app state is under artha_* keys.
+  2. First device → fresh Arto onboarding. PLACEHOLDER names + throwaway PINs (D19 —
+     RLS still off). Child devices join via invite codes.
+  3. Update VITE_DEV_FAMILY_ID in .env.local to the NEW family UUID
+     (Claude can fetch it from the families table via anon key) → restart dev server.
+  4. Verification pass on the fresh family:
+     - W8: first-week checklist (parent Dashboard) + child first-payday card
+       (both only visible at 0 settled payslips)
+     - W9: Generate Test History ×5 periods → Starter → Economist, all three gold
+       celebration banners fire (saver / investor / economist)
+     - Definition of Done checklist (blueprint Part 7) → then Phase A testing begins
 Open audit items: A6–A9, A11–A18 — A6 (stale-balance settle) still needs a design decision
+(A9's global checkFamilyExists is fine for the single-family re-onboard)
 ```
+
+### W9 — shipped (session 28)
+- `EventBanner.jsx`: celebratory gold variant keyed off `type === 'stage_unlocked'`
+  (amber gradient + gold border/glow + gold title, built from the `--warning` token).
+- `More.jsx`: Skip-guided-period confirm copy aligned to the W9 spec text verbatim;
+  unused `childCount` prop removed.
+- `STAGE_UNLOCKED_COPY` (payslip.js) verified verbatim against the W9 spec table — no change.
+- Unit test locks the graduation invariant (5 settles → exactly 3 celebrations,
+  mirroring the settle wrapper's count-based detection). 23/23 vitest; build clean.
+- Generate Test History confirmed to drive the REAL settle path (`runPayslip` →
+  `settlePayslip` RPC) — settling periods newest-first is safe (stage = count-based).
+  The LIVE graduation smoke test needs the fresh family (old children were already Economist).
+
+### D17 — executed (session 28)
+- **No backup taken** — Dev explicitly discarded the historical data; the "fresh v4
+  export" step is dropped (the v4 backup format itself stays in the app).
+- In-app "Reset All History" was insufficient (keeps families/members/chores/rewards/
+  device_claims; a surviving family row routes fresh devices to JoinFamily — A9).
+- `docs/migrations/D17_wipe_all.sql` (NEW) — TRUNCATE … CASCADE across all 13 tables.
+  **Run in Supabase 2026-06-11.** DB is empty; onboarding fires once localStorage is cleared.
+- `.env.local` `VITE_DEV_FAMILY_ID` points at the deleted family — harmless until the
+  re-onboard; update + dev-server restart afterwards (step 3 above).
 
 ### W8 — shipped (session 27)
 - `FirstWeekChecklist.jsx` on the parent Dashboard (until ANY settled payslip): family created ✓,
@@ -197,12 +225,15 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 - `FirstWeekChecklist.jsx` + `getFirstWeekProgress` op; bonus-chore hint (D7); child first-payday card
 - `EmptyChartNote` across all chart components; SavingsGrowthChart needs 2 actual points
 
-**W9:** not started — only celebratory banner styling + graduation verification remain
-(stage_unlocked alerts already fire with final copy from the settle wrapper).
+**W9 ✅** — Stage celebrations + graduation (session 28).
+- Celebratory gold banner variant in EventBanner (`type === 'stage_unlocked'`)
+- Skip confirm copy aligned to spec; graduation invariant unit test (23/23)
+- Live graduation smoke test deferred to the fresh-family verification pass
 
 **Roadmap position:**
 - [x] Phases 1–5: Core payroll, credit, loans, rewards, analytics, device auth
-- [ ] **Pre-distribution (THIS WORK — W1–W9):** Launch readiness (see blueprint)
+- [x] **Pre-distribution (W1–W9): code-complete** (session 28) — verification pass on the
+      fresh family pending (re-onboard → Generate Test History ×5 → DoD checklist)
 - [ ] Phase B2: RLS on all tables + realtime channel family_id filters
 - [ ] Phase C: Supabase Auth (email+password founding parent), account deletion
 - [ ] Phase D: Legal & compliance — Privacy Policy, ToS, COPPA/GDPR-K
@@ -228,7 +259,7 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 | W6 | Stage system / guided period | ✅ done | W5 |
 | W7 | In-app alerts (table + bell + banners) | ✅ done | W6 |
 | W8 | First-week checklist + empty states | ✅ done | W5, W7 |
-| W9 | Stage celebrations + guided-period graduation | **next** (alerts already fire; styling left) | W6, W7 |
+| W9 | Stage celebrations + guided-period graduation | ✅ done (live smoke test → fresh family) | W6, W7 |
 
 Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 
@@ -345,10 +376,9 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 > `saved` for Starter-stage payslips, and `markPayslipPromptAlertsHandled(payslipId)`
 > retires `payslip_ready` AND `payslip_overdue` (read + dismissed) after the settle RPC.
 
-**W9 — celebratory banner styling**
-`stage_unlocked` alert rows already exist (fired in the settle wrapper, copy in
-`STAGE_UNLOCKED_COPY` in payslip.js). W9 adds a distinct celebratory variant in
-`EventBanner.jsx` (key off `type === 'stage_unlocked'`) and verifies the graduation flow.
+> ✅ W9 implemented in session 28: celebratory variant in `EventBanner.jsx` keyed off
+> `type === 'stage_unlocked'`; copy verified against spec; graduation invariant unit-tested.
+> Only the LIVE graduation pass remains — runs on the fresh family after the re-onboard.
 
 **W8 — checklist queries already exist**
 FirstWeekChecklist needs: device_claims (child claim), chore_logs (any row / any approved),
