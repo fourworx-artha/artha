@@ -9,9 +9,8 @@ type: project
 **W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ complete. A1–A5 + A10 fixed.**
 
 ```
-⚠️ BEFORE NEXT PAYSLIP RUN: execute docs/migrations/W6_payslips_stage.sql in the Supabase
-   SQL editor (adds payslips.stage). runPayslip inserts that column now — it FAILS without it.
-Immediate next action: run the migration, smoke-test stages on the dev family
+W6 SQL migration (docs/migrations/W6_payslips_stage.sql) ✅ run in Supabase 2026-06-11.
+Immediate next action: smoke-test stages on the dev family
                        (Backup → Generate Test History, 5 periods walks Starter→Economist),
                        then start W7 — in-app alerts (blueprint W7 section)
 W7 head start: settlePayslip already returns { settled, stageAdvanced } — the stage_unlocked
