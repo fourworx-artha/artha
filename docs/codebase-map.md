@@ -239,6 +239,15 @@ Migration utility for moving data from an earlier Dexie/IndexedDB schema to Supa
 ### `src/hooks/useStage.js`
 **NEW (W6).** `useStage(member)` → `{ stage, has(feature), override, settledCount, loading }` for one member; `useStages()` → `{ stages, maxStage, guidedActive, has }` for parent surfaces (menus unlock when ANY child reaches a stage). Reads `settledCounts` cached in FamilyContext. `loading` guards route redirects until counts arrive.
 
+### `src/hooks/useAlerts.js`
+**NEW (W7).** `useAlerts()` → `{ alerts, banners, unreadCount, markRead, markAllRead, dismiss }` for the logged-in member (parents see `target_role` parent/all family-wide; children see child/all addressed to them or family-wide). Refreshes on every realtime tick; mutations are optimistic. Also exports `alertRoute(alert, role)` — the type → route map used by both the bell and the banners.
+
+### `src/components/AlertBell.jsx`
+**NEW (W7).** Bell + unread badge in the Dashboard and child Home headers; tap opens the alert feed bottom sheet (newest first, unread bold + blue dot, "Mark all read"); tapping an alert marks it read and navigates via `alertRoute`.
+
+### `src/components/EventBanner.jsx`
+**NEW (W7).** Stacked dismissible banners at the top of Dashboard / child Home. Takes alert rows (dismiss writes `dismissed_at`) plus computed items (`chores_due`, `approvals_pending` — no table row; dismissal is per-device-per-day in localStorage). Max 2 visible; priority payslip > stage > chores/approvals.
+
 ## 4. Scaffolding / Config
 
 Files that are setup boilerplate and rarely need to change.
@@ -350,7 +359,7 @@ Plain English paths from user action to database, for each major operation.
 
 ## 6. Database Map
 
-All 12 tables in Supabase. RLS is currently disabled on all tables — intentional during single-family testing phase.
+All 13 tables in Supabase. RLS is currently disabled on all tables — intentional during single-family testing phase.
 
 ### `families`
 One row per family. Stores the family name and two critical JSON columns: `config` (family-level economic parameters — tax rate, rent, loan rate, payday schedule, currency, `autoSettle`, `stageOverride`, `configTouched`; since W6 the four stage-gated keys are stripped from here by `migrateStageConfig` and live only in `member.config`) and `tax_fund_balance` + `tax_fund_history` (the family's pooled tax fund).
@@ -412,6 +421,11 @@ Maps `device_id` (UUID stored in localStorage) to `family_id` + `member_id`. One
 
 Related to: `families` (by `family_id`), `members` (by `member_id`)
 
+### `alerts`
+**NEW (W7).** In-app alerts feeding the bell + banners. Key fields: `target_role` (parent/child/all), `member_id` (the child it's addressed to or about; null = family-wide), `channels` (text[] of banner/bell), `data` (jsonb — payslipId, stage, amounts for navigation), `dedupe_key` + a FULL unique index (NULLs distinct; `createAlert` upserts with ON CONFLICT DO NOTHING — race-free across two parent devices; a partial index can't be inferred by PostgREST's `on_conflict`), `read_at` (bell state), `dismissed_at` (banner state). Writes are always try/catch — a failed alert never fails the money operation; settle-path alerts fire from the JS wrapper AFTER the RPC. Pruned client-side after 30 days (`deleteOldAlerts`, 24h localStorage guard). Deliberately never in backups; cleared on reset/import. Migration: `docs/migrations/W7_alerts.sql`.
+
+Related to: `families` (by `family_id`), `members` (by `member_id`)
+
 ---
 
 ## 7. External Services
@@ -419,7 +433,7 @@ Related to: `families` (by `family_id`), `members` (by `member_id`)
 ### Supabase
 **URL:** `https://uhmpjkalbzkhrhibgyba.supabase.co`
 
-**What it does:** PostgreSQL database (12 tables, all data), Realtime subscriptions (7 channels in FamilyContext), and storage for all app state. No Supabase Auth is used yet — authentication is custom PIN-based. RLS is disabled on all tables.
+**What it does:** PostgreSQL database (13 tables, all data), Realtime subscriptions (8 tables on the family-sync channel in FamilyContext), and storage for all app state. No Supabase Auth is used yet — authentication is custom PIN-based. RLS is disabled on all tables.
 
 **Files connected:**
 - `src/db/supabase.js` — client initialisation

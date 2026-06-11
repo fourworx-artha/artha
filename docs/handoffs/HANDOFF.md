@@ -1,23 +1,49 @@
 ---
-name: Artha — Launch Blueprint Handoff (post-session 25)
-description: W1–W6 complete (stage system shipped, A10 fixed); W7 (alerts) is next
+name: Artha — Launch Blueprint Handoff (post-session 26)
+description: W1–W7 complete (alerts shipped); W7 SQL migration must run in Supabase; W8 (checklist + empty states) is next
 type: project
 ---
 
 ## ⚡ Next Session Starts Here
 
-**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ complete. A1–A5 + A10 fixed.**
+**W1 ✅ W2 ✅ W3 ✅ W4 ✅ W5 ✅ W6 ✅ W7 ✅ complete. A1–A5 + A10 fixed.**
 
 ```
-W6 SQL migration (docs/migrations/W6_payslips_stage.sql) ✅ run in Supabase 2026-06-11.
-Immediate next action: smoke-test stages on the dev family
-                       (Backup → Generate Test History, 5 periods walks Starter→Economist),
-                       then start W7 — in-app alerts (blueprint W7 section)
-W7 head start: settlePayslip already returns { settled, stageAdvanced } — the stage_unlocked
-               alert (W7/W9) plugs into that value in the settle wrapper
+W7 SQL migration (docs/migrations/W7_alerts.sql) ✅ run in Supabase 2026-06-11.
+W6 SQL migration (W6_payslips_stage.sql) ✅ run in Supabase 2026-06-11.
+Immediate next action: smoke-test W6+W7 together on the dev family
+                       (Backup → Generate Test History, 5 periods walks Starter→Economist
+                       AND fires first_payslip / payslip_settled / 3× stage_unlocked alerts),
+                       then start W8 — first-week checklist + empty states (blueprint W8)
+W9 note: stage_unlocked ALERTS already fire from the settle wrapper (W9 copy inline in
+         payslip.js as STAGE_UNLOCKED_COPY) — W9's remaining scope is the celebratory
+         banner styling in EventBanner + verifying the graduation flow
 Pre-req before going live: FRESH v4 export → reset → re-onboard with placeholder identities (D17/D19)
 Open audit items: A6–A9, A11–A18 — A6 (stale-balance settle) still needs a design decision
 ```
+
+### W7 — shipped (session 26)
+- `alerts` table (13th) — `docs/migrations/W7_alerts.sql`. **Deviation:** dedupe_key has a FULL
+  unique index, not the blueprint's partial one — PostgREST `on_conflict` can't infer a partial
+  index; NULLs are distinct so it behaves identically. `createAlert` upserts with
+  `ignoreDuplicates: true` → ON CONFLICT DO NOTHING, race-free across two parent devices.
+- `tryCreateAlert` is the standard write path — a failed alert insert never fails the money op;
+  settle-path alerts fire from the JS wrapper AFTER the RPC.
+- Launch catalog wired: settle wrapper fires `first_payslip` (count===1, INSTEAD of
+  payslip_settled — never both) / `payslip_settled` (D9 summary body; `saved` omitted for
+  Starter payslips) / `stage_unlocked` (W9 copy); Dashboard auto-run writes `payslip_ready`
+  (manual mode, dedupe `ready:{id}`); `refreshBanners` writes `payslip_overdue` (dedupe
+  `overdue:{id}`); operations.js fires `chore_approved`/`chore_rejected` (bell),
+  `chores_all_done` (at LOG time, pending counts as done, dedupe `alldone:{member}:{date}`),
+  `reward_approved` (banner+bell), `reward_rejected`, `cash_approved` (cash destination only).
+- Computed banners (no table row, local per-day dismissal): `chores_due` (child Home),
+  `approvals_pending` (Dashboard).
+- UI: `AlertBell` (badge + feed sheet) + `EventBanner` (max 2, priority payslip > stage > rest)
+  in Dashboard + child Home headers; `useAlerts` hook + `alertRoute(alert, role)`;
+  `alerts` on FamilyContext's realtime channel; `deleteOldAlerts` (>30d, 24h guard) on load.
+- Absorbed: Dashboard drafted + overdue local banners, ChildShell reward toast (removed).
+- Settling retires that payslip's `payslip_ready`/`payslip_overdue` (read + dismissed).
+- Alerts are ephemera: never in backups; cleared on reset (Backup.jsx) and import.
 
 ### W6 — shipped (session 25)
 - Stage = derived per child: `deriveStage(settledCount, family.config.stageOverride)` — never stored.
@@ -145,7 +171,14 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 - Child + parent surfaces gated per feature map; route guards; "Skip the guided period" in More
 - EconomicControls guided mode + merge writes + `configTouched` (A10 fixed)
 
-**W7–W9:** not started.
+**W7 ✅** — In-app alerts (session 26).
+- `alerts` table + `docs/migrations/W7_alerts.sql` (**must run in Supabase before deploy**)
+- `createAlert`/`tryCreateAlert` + full catalog insertion points (settle wrapper, chore/reward/cash ops, Dashboard auto-run + overdue check, addChoreLog all-done)
+- `AlertBell` + `EventBanner` + `useAlerts`/`alertRoute`; realtime via family-sync channel
+- Absorbed: drafted/overdue Dashboard banners, ChildShell reward toast
+- stage_unlocked alerts already firing (W9 copy inline in payslip.js)
+
+**W8–W9:** not started.
 
 **Roadmap position:**
 - [x] Phases 1–5: Core payroll, credit, loans, rewards, analytics, device auth
@@ -173,9 +206,9 @@ This matters now: the pre-live plan is "export → reset → re-onboard" (D17/D1
 | W4 | Dynamic family_id + dev-device self-migration | ✅ done | — |
 | W5 | Onboarding flow (incl. device handoff) | ✅ done | W3, W4 |
 | W6 | Stage system / guided period | ✅ done | W5 |
-| W7 | In-app alerts (table + bell + banners) | **next** | W6 |
-| W8 | First-week checklist + empty states | pending | W5, W7 |
-| W9 | Stage celebrations + guided-period graduation | pending | W6, W7 |
+| W7 | In-app alerts (table + bell + banners) | ✅ done | W6 |
+| W8 | First-week checklist + empty states | **next** | W5, W7 |
+| W9 | Stage celebrations + guided-period graduation | pending (alerts already fire; styling left) | W6, W7 |
 
 Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 
@@ -228,11 +261,13 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 | Investor | 3 settled | Streak bonuses, sub-goals, analytics charts, net worth |
 | Economist | 5 settled | Loans, credit score, philanthropy, family fund, vacation, utilities, full econ controls |
 
-**Alerts table (W7):**
-- New `alerts` table in Supabase with `dedupe_key` column + partial unique index
-- `ON CONFLICT (dedupe_key) DO NOTHING` for race-free duplicate prevention
-- Alert writes are always try/catch — a failed insert never fails the money operation
+**Alerts table (W7) — ✅ shipped (session 26):**
+- `alerts` table with `dedupe_key` + FULL unique index (NOT partial — PostgREST `on_conflict`
+  can't infer a partial index; NULLs are distinct so behaviour is identical)
+- `ON CONFLICT (dedupe_key) DO NOTHING` via upsert `ignoreDuplicates` — race-free duplicates
+- Alert writes are always try/catch (`tryCreateAlert`) — a failed insert never fails the money operation
 - Alerts inside the settle path fire from the JS wrapper AFTER the RPC succeeds
+- Ephemera: never in backups, cleared on reset/import, pruned client-side >30 days
 
 ### Supabase tables (current + planned)
 
@@ -250,7 +285,7 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 | `member_requests` | donation / subgoal_withdrawal / tax_goal_vote / cash_withdrawal |
 | `join_codes` | 6-char invite codes, 10-min TTL |
 | `device_claims` | device_id → family_id + member_id |
-| `alerts` | **NEW (W7)** — in-app alerts with dedupe_key |
+| `alerts` | **NEW (W7 ✅)** — in-app alerts with dedupe_key (full unique index); migration `docs/migrations/W7_alerts.sql` |
 | _(unique index)_ | `payslips_member_period_uniq` on `(member_id, period_start) WHERE status='draft'` — **done W2 ✅** |
 
 ### Key files
@@ -274,8 +309,10 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 | `src/hooks/useStage.js` | **NEW (W6 ✅)** — `useStage` / `useStages` hooks |
 | `src/utils/stages.js` | **NEW (W6 ✅)** — pure stage derivation + patch computation |
 | `docs/migrations/W6_payslips_stage.sql` | **NEW (W6 ✅)** — `payslips.stage` column (RUN IN SUPABASE) |
-| `src/components/AlertBell.jsx` | **NEW (W7)** — bell icon + unread badge + feed sheet |
-| `src/components/EventBanner.jsx` | **NEW (W7)** — stacked dismissible banners |
+| `src/components/AlertBell.jsx` | **NEW (W7 ✅)** — bell icon + unread badge + feed sheet |
+| `src/components/EventBanner.jsx` | **NEW (W7 ✅)** — stacked dismissible banners (max 2, priority) |
+| `src/hooks/useAlerts.js` | **NEW (W7 ✅)** — alert feed hook + `alertRoute(alert, role)` |
+| `docs/migrations/W7_alerts.sql` | **NEW (W7 ✅)** — alerts table (RUN IN SUPABASE before deploy) |
 | `src/components/FirstWeekChecklist.jsx` | **NEW (W8)** — parent dashboard getting-started card |
 | `src/components/InviteCodePanel.jsx` | **NEW (W5)** — shared extraction from InviteCode.jsx |
 
@@ -283,11 +320,18 @@ Full specs in `docs/ARTHA-LAUNCH-BLUEPRINT.md` Part 4.
 
 ## Implementation Notes (carry into sessions)
 
-**W7 — `payslip_settled` body omit `[saved]` for Starter**
-At Starter stage `saved` is ₹0 (no auto-save) — looks odd. Omit the saved field from the body when `stage < 'saver'`.
+> ✅ Both session-25 W7 notes implemented in session 26: the settle summary body omits
+> `saved` for Starter-stage payslips, and `markPayslipPromptAlertsHandled(payslipId)`
+> retires `payslip_ready` AND `payslip_overdue` (read + dismissed) after the settle RPC.
 
-**W7 — mark `payslip_ready` alert read when payslip is manually settled**
-When `autoSettle: false`, both a `payslip_ready` and (later) a `payslip_settled` alert exist for the same payslip. After the settle RPC succeeds, mark any `payslip_ready` alert with `data.payslipId = X` as read.
+**W9 — celebratory banner styling**
+`stage_unlocked` alert rows already exist (fired in the settle wrapper, copy in
+`STAGE_UNLOCKED_COPY` in payslip.js). W9 adds a distinct celebratory variant in
+`EventBanner.jsx` (key off `type === 'stage_unlocked'`) and verifies the graduation flow.
+
+**W8 — checklist queries already exist**
+FirstWeekChecklist needs: device_claims (child claim), chore_logs (any row / any approved),
+payslips settled (hides card) — all readable through existing operations.
 
 ---
 

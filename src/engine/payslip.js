@@ -5,9 +5,10 @@ import {
   addPayslip, rpcSettlePayslip, getPayslip,
   getPayslipForPeriod, getLatestPayslip,
   getSettledPayslipCounts, applyStagePatches,
+  tryCreateAlert, markPayslipPromptAlertsHandled,
 } from '../db/operations'
 import { deriveStage, stageRank } from '../utils/stages'
-import { roundRupees } from '../utils/currency'
+import { roundRupees, formatCurrency } from '../utils/currency'
 import { currentPeriodStart, currentPeriodEnd, daysAgo } from '../utils/dates'
 import { calculateWeeklyInterest } from './interest'
 import { calculateStreak } from './chores'
@@ -486,6 +487,23 @@ export async function runPayslip(memberId, overridePeriod = null) {
 
 // ── Settle payslip (commits balance updates to DB) ────────────────────────────
 
+// W9 celebration copy, fired from the settle wrapper per the W7 insertion map.
+// W9 adds the celebratory banner styling on top of these rows.
+const STAGE_UNLOCKED_COPY = {
+  saver: {
+    parent: (name) => `🎉 Saver unlocked! ${name} now has a savings account earning interest. Auto-save is set to 20% — adjust it anytime.`,
+    child:  ()     => '🎉 New: Savings Account! Part of each payslip now goes into savings — and your savings earn interest. Money that makes money!',
+  },
+  investor: {
+    parent: (name) => `🎉 Investor unlocked! Savings goals, streak bonuses, and analytics charts are now available for ${name}.`,
+    child:  ()     => '🎉 New features! Set savings goals, earn streak bonuses for doing chores every day, and see your money charts.',
+  },
+  economist: {
+    parent: ()     => '🎓 Guided period complete! Your family now runs the full economy — loans, credit score, philanthropy, and every control unlocked. Fine-tune everything in Economic Controls.',
+    child:  ()     => "🎓 You're an Economist! You've mastered earning and saving — now the full financial world is open: loans, a credit score, and giving.",
+  },
+}
+
 /**
  * Settle a draft payslip atomically via Postgres RPC.
  * All six writes (accounts, tax fund, transactions, credit score, payslip status)
@@ -493,9 +511,11 @@ export async function runPayslip(memberId, overridePeriod = null) {
  *
  * W6: after the RPC succeeds, detect stage advancement (derived stage before vs
  * after this settle) and apply the new stage's config patch to the child.
- * Advancement work runs OUTSIDE the transaction and must never fail the settle.
+ * W7: settle-path alerts (payslip_settled / first_payslip / stage_unlocked)
+ * fire here too — always AFTER the RPC, never inside the transaction.
+ * All post-settle work runs OUTSIDE the transaction and must never fail the settle.
  * Returns { settled, stageAdvanced } — stageAdvanced is null when no threshold
- * was crossed (W9 celebrations/alerts hook in here).
+ * was crossed (W9 celebrations consume it).
  */
 export async function settlePayslip(payslipId) {
   const payslip = await getPayslip(payslipId).catch(() => null)
@@ -517,9 +537,67 @@ export async function settlePayslip(payslipId) {
         await applyStagePatches(member, after)
         stageAdvanced = { memberId: member.id, from: before, to: after }
       }
+
+      if (member) {
+        const fmt = (n) => formatCurrency(n, family?.config?.currency ?? 'INR')
+        // Starter payslips have no auto-save — omit the odd "₹0 saved" line.
+        // Legacy payslips (stage null) render full, so they keep it.
+        const showSaved = payslip.stage === null || stageRank(payslip.stage) >= stageRank('saver')
+        const pct = Math.round((payslip.earnings?.mandatoryCompletionPercent ?? 0) * 100)
+        const summary = `${pct}% chores · ${fmt(payslip.net ?? 0)} earned` +
+          (showSaved ? ` · ${fmt(payslip.allocations?.savings ?? 0)} saved` : '')
+        const alertData = { payslipId, memberId: member.id }
+
+        if (count === 1) {
+          // The first settle gets the celebratory first_payslip pair instead of
+          // the routine payslip_settled (firing both would double the banners).
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'parent', type: 'first_payslip',
+            title: `🎉 ${member.name}'s first payslip! Review it together — ask them what they think about tax and rent.`,
+            body: summary, data: alertData, channels: ['banner', 'bell'],
+          })
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'child', type: 'first_payslip',
+            title: '🎉 Your first payslip! Welcome to the real world — tax and rent are real.',
+            body: summary, data: alertData, channels: ['banner', 'bell'],
+          })
+        } else {
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'parent', type: 'payslip_settled',
+            title: `✅ ${member.name}'s payslip settled — earned ${fmt(payslip.net ?? 0)}. Tap to review.`,
+            body: summary, data: alertData, channels: ['banner', 'bell'],
+          })
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'child', type: 'payslip_settled',
+            title: `💰 Payday! You earned ${fmt(payslip.net ?? 0)} this week.`,
+            body: summary, data: alertData, channels: ['banner', 'bell'],
+          })
+        }
+
+        if (stageAdvanced && STAGE_UNLOCKED_COPY[stageAdvanced.to]) {
+          const copy = STAGE_UNLOCKED_COPY[stageAdvanced.to]
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'parent', type: 'stage_unlocked',
+            title: copy.parent(member.name),
+            data: { ...alertData, stage: stageAdvanced.to },
+            channels: ['banner', 'bell'],
+            dedupeKey: `stage:${member.id}:${stageAdvanced.to}:parent`,
+          })
+          await tryCreateAlert({
+            memberId: member.id, targetRole: 'child', type: 'stage_unlocked',
+            title: copy.child(member.name),
+            data: { ...alertData, stage: stageAdvanced.to },
+            channels: ['banner', 'bell'],
+            dedupeKey: `stage:${member.id}:${stageAdvanced.to}:child`,
+          })
+        }
+
+        // A settle retires this payslip's payslip_ready / payslip_overdue prompts.
+        await markPayslipPromptAlertsHandled(payslipId).catch(() => {})
+      }
     }
   } catch (e) {
-    console.warn('[Artha] stage advancement after settle failed:', e)
+    console.warn('[Artha] post-settle work (stage advancement / alerts) failed:', e)
   }
   return { settled, stageAdvanced }
 }

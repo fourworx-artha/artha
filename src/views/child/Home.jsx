@@ -4,11 +4,14 @@ import { useAuth } from '../../context/AuthContext'
 import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { displayDate, today } from '../../utils/dates'
 import { calculatePayslip } from '../../engine/payslip'
-import { getChoreLogsForPeriod, getChores, getUtilityCharges, makeEarlyRepayment, getLatestPayslip, markCreditPopupSeen, getPayslips, addMemberRequest, getTransactions, getTransactionsForPeriod } from '../../db/operations'
-import { calculateStreak } from '../../engine/chores'
+import { getChoreLogsForPeriod, getChoreLogsForDate, getChores, getUtilityCharges, makeEarlyRepayment, getLatestPayslip, markCreditPopupSeen, getPayslips, addMemberRequest, getTransactions, getTransactionsForPeriod } from '../../db/operations'
+import { calculateStreak, getDueChoresForMember } from '../../engine/chores'
 import { getFamilyId } from '../../utils/family'
 import { daysAgo } from '../../utils/dates'
 import { useStage } from '../../hooks/useStage'
+import { useAlerts, alertRoute } from '../../hooks/useAlerts'
+import AlertBell from '../../components/AlertBell'
+import EventBanner from '../../components/EventBanner'
 import { ChevronRight, X, Landmark } from 'lucide-react'
 import CreditScorePopup from '../../components/CreditScorePopup'
 import NetWorthChart from '../../components/NetWorthChart'
@@ -716,12 +719,14 @@ function CashOutSheet({ spending, memberId, onClose, fmt }) {
 
 export default function ChildHome() {
   const { currentMember, refreshMember } = useAuth()
-  const { family } = useFamily()
+  const { family, chores, reloadCount } = useFamily()
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { periodStart, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
   const { has } = useStage(currentMember)  // W6 feature gating
+  const { banners, markRead, dismiss } = useAlerts()  // W7 alert rows for banners
 
+  const [choresDueCount,  setChoresDueCount]  = useState(0)
   const [projected,       setProjected]       = useState(null)
   const [streak,          setStreak]          = useState(0)
   const [showPrepay,      setShowPrepay]      = useState(false)
@@ -772,6 +777,21 @@ export default function ChildHome() {
     setCreditPopup(null)
     if (currentMember) await markCreditPopupSeen(currentMember.id, periodEnd).catch(() => {})
   }
+
+  // W7 computed banner: chores still to do today (no table row — derived live;
+  // pending counts as done, same as everywhere else)
+  useEffect(() => {
+    if (!currentMember) return
+    const due = getDueChoresForMember(chores, currentMember.id)
+    if (!due.length) { setChoresDueCount(0); return }
+    getChoreLogsForDate(currentMember.id, today()).then(logs => {
+      const remaining = due.filter(c => {
+        const log = logs.find(l => l.choreId === c.id)
+        return !log || log.status === 'rejected'
+      }).length
+      setChoresDueCount(remaining)
+    }).catch(() => {})
+  }, [currentMember?.id, chores, reloadCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute projected earnings + streak for current period
   const loadProjected = useCallback(async () => {
@@ -999,6 +1019,7 @@ export default function ChildHome() {
             {currentMember?.avatar} {currentMember?.name}
           </h2>
           <div className="flex items-center gap-2">
+            <AlertBell />
             {has('streaks') && streak >= 3 && (
               <span className="text-xs font-mono px-2 py-0.5 rounded-full"
                 style={{ background: 'rgba(251,191,36,0.12)', color: 'var(--warning)', border: '1px solid rgba(251,191,36,0.25)' }}>
@@ -1023,6 +1044,20 @@ export default function ChildHome() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+        {/* W7 event banners — payday / stage / reward / all-done alert rows +
+            the computed chores_due item (absorbed the old reward toast) */}
+        <EventBanner
+          banners={banners}
+          computed={choresDueCount > 0 ? [{
+            key:   'choresdue',
+            type:  'chores_due',
+            title: `📋 You have ${choresDueCount} chore${choresDueCount === 1 ? '' : 's'} to do today`,
+            onTap: () => navigate('/child/chores'),
+          }] : []}
+          onDismiss={a => dismiss(a.id)}
+          onTap={a => { markRead(a.id); navigate(alertRoute(a, 'child')) }}
+        />
+
         {/* Vacation banner */}
         {currentMember?.config?.vacation?.active && (
           <div className="px-4 py-3 rounded-xl flex flex-col gap-1"

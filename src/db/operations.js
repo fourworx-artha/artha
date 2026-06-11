@@ -3,6 +3,8 @@ import { today } from '../utils/dates'
 import { DEFAULT_CONFIG, STAGE_GATED_KEYS, STAGE_PATCHES } from '../utils/constants'
 import { deriveStage, buildStagePatch, unlockedStageKeys } from '../utils/stages'
 import { getFamilyId, setFamilyId } from '../utils/family'
+import { formatCurrency } from '../utils/currency'
+import { getDueChoresForMember } from '../engine/chores'
 
 // ── Row mappers (DB snake_case → JS camelCase) ────────────────────────────────
 
@@ -146,6 +148,131 @@ function mapUtilityCharge(row) {
 
 function throwIfError({ error }) {
   if (error) throw new Error(error.message)
+}
+
+// ── Alerts (W7) ───────────────────────────────────────────────────────────────
+
+function mapAlert(row) {
+  if (!row) return null
+  return {
+    id:          row.id,
+    familyId:    row.family_id,
+    memberId:    row.member_id,
+    targetRole:  row.target_role,
+    type:        row.type,
+    title:       row.title,
+    body:        row.body,
+    data:        row.data,
+    channels:    row.channels ?? [],
+    dedupeKey:   row.dedupe_key,
+    readAt:      row.read_at,
+    dismissedAt: row.dismissed_at,
+    createdAt:   row.created_at,
+  }
+}
+
+/**
+ * Insert an alert. Duplicate-prone alerts pass `dedupeKey` — the unique index
+ * plus ON CONFLICT DO NOTHING (upsert ignoreDuplicates) makes the write
+ * race-free across two parent devices, no check-then-insert.
+ */
+export async function createAlert({
+  memberId = null, targetRole, type, title, body = null,
+  data = null, channels = ['bell'], dedupeKey = null, familyId = null,
+}) {
+  throwIfError(await supabase.from('alerts').upsert({
+    id:          crypto.randomUUID(),
+    family_id:   familyId ?? getFamilyId(),
+    member_id:   memberId,
+    target_role: targetRole,
+    type, title, body, data, channels,
+    dedupe_key:  dedupeKey,
+  }, { onConflict: 'dedupe_key', ignoreDuplicates: true }))
+}
+
+/** A failed alert insert must never fail the operation that triggered it. */
+export async function tryCreateAlert(alert) {
+  try { await createAlert(alert) } catch (e) { console.warn('[Artha] alert write failed:', e) }
+}
+
+/** Currency formatter for alert copy written outside React (no useCurrency hook). */
+async function alertFmt() {
+  let currency = DEFAULT_CONFIG.currency
+  try {
+    const { data } = await supabase.from('families').select('config').eq('id', getFamilyId()).single()
+    currency = data?.config?.currency ?? currency
+  } catch { /* fall back to default */ }
+  return (amount) => formatCurrency(amount, currency)
+}
+
+/**
+ * Feed for the bell + banners. Parents see parent/all alerts for the family;
+ * children see child/all alerts addressed to them or family-wide.
+ */
+export async function getAlerts({ role, memberId = null, limit = 50 }) {
+  let q = supabase.from('alerts').select('*')
+    .eq('family_id', getFamilyId())
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  q = role === 'parent'
+    ? q.in('target_role', ['parent', 'all'])
+    : q.in('target_role', ['child', 'all']).or(`member_id.eq.${memberId},member_id.is.null`)
+  const { data, error } = await q
+  throwIfError({ error })
+  return (data ?? []).map(mapAlert)
+}
+
+export async function markAlertRead(id) {
+  throwIfError(await supabase.from('alerts')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', id))
+}
+
+export async function markAllAlertsRead(ids) {
+  if (!ids?.length) return
+  throwIfError(await supabase.from('alerts')
+    .update({ read_at: new Date().toISOString() })
+    .in('id', ids)
+    .is('read_at', null))
+}
+
+/** Banner dismissal also marks read so the bell badge doesn't keep counting it. */
+export async function dismissAlert(id) {
+  const now = new Date().toISOString()
+  throwIfError(await supabase.from('alerts')
+    .update({ dismissed_at: now, read_at: now })
+    .eq('id', id))
+}
+
+/**
+ * Settling a payslip retires its prompt alerts: payslip_ready /
+ * payslip_overdue rows for that payslip are marked read + dismissed so the
+ * banner disappears and the bell stops counting them.
+ */
+export async function markPayslipPromptAlertsHandled(payslipId) {
+  const now = new Date().toISOString()
+  await supabase.from('alerts')
+    .update({ read_at: now, dismissed_at: now })
+    .in('type', ['payslip_ready', 'payslip_overdue'])
+    .contains('data', { payslipId })
+    .is('dismissed_at', null)
+}
+
+/**
+ * Prune alerts older than 30 days. Runs on app load, at most once per 24h per
+ * device (localStorage guard). No cron. Failure is silent — pruning is hygiene.
+ */
+export async function deleteOldAlerts() {
+  try {
+    const KEY = 'artha_alerts_pruned_at'
+    const last = Number(localStorage.getItem(KEY) ?? 0)
+    if (Date.now() - last < 24 * 60 * 60 * 1000) return
+    localStorage.setItem(KEY, String(Date.now()))
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    await supabase.from('alerts').delete().eq('family_id', getFamilyId()).lt('created_at', cutoff)
+  } catch (e) {
+    console.warn('[Artha] alert pruning failed:', e)
+  }
 }
 
 // ── Family ──────────────────────────────────────────────────────────────────
@@ -332,20 +459,79 @@ export async function addChoreLog(chore) {
     approved_at:  null,
   }
   throwIfError(await supabase.from('chore_logs').insert(row))
+
+  // chores_all_done fires at LOG time — when this log completes today's
+  // mandatory set. Pending counts as done (same principle as credit score:
+  // parent approval delay must not penalise the child); a later rejection is
+  // corrected by the chore_rejected alert.
+  try {
+    if (chore.date !== today()) return
+    const allChores = await getChores(getFamilyId())
+    const due = getDueChoresForMember(allChores, chore.memberId)
+    if (!due.length) return
+    const logs = await getChoreLogsForDate(chore.memberId, chore.date)
+    const allDone = due.every(c => logs.some(l =>
+      l.choreId === c.id && (l.status === 'approved' || l.status === 'pending')))
+    if (!allDone) return
+    await createAlert({
+      memberId:  chore.memberId,
+      targetRole: 'child',
+      type:      'chores_all_done',
+      title:     '✅ All done for today! Great work.',
+      channels:  ['banner', 'bell'],
+      dedupeKey: `alldone:${chore.memberId}:${chore.date}`,
+    })
+  } catch (e) {
+    console.warn('[Artha] alert write failed:', e)
+  }
 }
 
 export async function approveChoreLog(id) {
-  throwIfError(await supabase
+  const { data, error } = await supabase
     .from('chore_logs')
     .update({ status: 'approved', approved_at: Date.now() })
-    .eq('id', id))
+    .eq('id', id)
+    .select()
+    .single()
+  throwIfError({ error })
+  try {
+    const { data: chore } = await supabase
+      .from('chores').select('title').eq('id', data.chore_id).single()
+    await createAlert({
+      memberId:  data.member_id,
+      targetRole: 'child',
+      type:      'chore_approved',
+      title:     `✅ ${chore?.title ?? 'Chore'} approved!`,
+      data:      { choreId: data.chore_id, logId: id },
+      channels:  ['bell'],
+    })
+  } catch (e) {
+    console.warn('[Artha] alert write failed:', e)
+  }
 }
 
 export async function rejectChoreLog(id) {
-  throwIfError(await supabase
+  const { data, error } = await supabase
     .from('chore_logs')
     .update({ status: 'rejected', approved_at: Date.now() })
-    .eq('id', id))
+    .eq('id', id)
+    .select()
+    .single()
+  throwIfError({ error })
+  try {
+    const { data: chore } = await supabase
+      .from('chores').select('title').eq('id', data.chore_id).single()
+    await createAlert({
+      memberId:  data.member_id,
+      targetRole: 'child',
+      type:      'chore_rejected',
+      title:     `❌ ${chore?.title ?? 'Chore'} was not approved.`,
+      data:      { choreId: data.chore_id, logId: id },
+      channels:  ['bell'],
+    })
+  } catch (e) {
+    console.warn('[Artha] alert write failed:', e)
+  }
 }
 
 export async function updateChoreLog(id, changes) {
@@ -482,10 +668,21 @@ export async function getPendingRewardRequests(memberIds) {
 }
 
 export async function rejectRewardRequest(id) {
-  throwIfError(await supabase
+  const { data, error } = await supabase
     .from('reward_requests')
     .update({ status: 'rejected', resolved_at: Date.now() })
-    .eq('id', id))
+    .eq('id', id)
+    .select()
+    .single()
+  throwIfError({ error })
+  await tryCreateAlert({
+    memberId:  data.member_id,
+    targetRole: 'child',
+    type:      'reward_rejected',
+    title:     `❌ ${data.reward_title ?? 'Reward'} request was declined.`,
+    data:      { requestId: id },
+    channels:  ['bell'],
+  })
 }
 
 // ── Compound operations ───────────────────────────────────────────────────────
@@ -561,6 +758,21 @@ export async function approveRewardRequest(requestId, memberId, amount) {
     date: new Date().toISOString().slice(0, 10),
     relatedId: requestId,
   })
+
+  // reward_approved banner+bell (absorbs the old ChildShell toast)
+  try {
+    const fmt = await alertFmt()
+    await createAlert({
+      memberId,
+      targetRole: 'child',
+      type:      'reward_approved',
+      title:     `🎉 ${reqRow?.reward_title ?? 'Reward'} approved! ${fmt(amount)} deducted from wallet.`,
+      data:      { requestId, amount },
+      channels:  ['banner', 'bell'],
+    })
+  } catch (e) {
+    console.warn('[Artha] alert write failed:', e)
+  }
 }
 
 // Parent buys a reward directly on behalf of a child (no request flow)
@@ -1106,6 +1318,23 @@ async function performSpendingWithdrawal(memberId, amount, destination) {
 export async function approveSpendingWithdrawal(requestId, memberId, amount, destination) {
   await performSpendingWithdrawal(memberId, amount, destination)
   await resolveMemberRequest(requestId, 'approved')
+
+  // cash_approved bell — cash destination only (bank transfers stay silent per the launch catalog)
+  if (destination === 'cash') {
+    try {
+      const fmt = await alertFmt()
+      await createAlert({
+        memberId,
+        targetRole: 'child',
+        type:      'cash_approved',
+        title:     `💵 Cash withdrawal of ${fmt(amount)} approved — collect from your parent.`,
+        data:      { requestId, amount },
+        channels:  ['bell'],
+      })
+    } catch (e) {
+      console.warn('[Artha] alert write failed:', e)
+    }
+  }
 }
 
 // ── Direct savings → spending wallet transfer (no parent approval needed) ─────
@@ -1301,6 +1530,8 @@ export async function importAllData(data) {
       supabase.from('utility_charges').delete().in('member_id', memberIds),
       supabase.from('reward_requests').delete().in('member_id', memberIds),
       supabase.from('member_requests').delete().eq('family_id', familyId),
+      // alerts are device-era ephemera (never in backups) — clear stale rows
+      supabase.from('alerts').delete().eq('family_id', familyId),
     ])
   }
   await supabase.from('chores').delete().eq('family_id', familyId)

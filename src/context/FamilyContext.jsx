@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { getFamily, getMembers, getChores, getRewards, getSettledPayslipCounts, migrateStageConfig } from '../db/operations'
+import { getFamily, getMembers, getChores, getRewards, getSettledPayslipCounts, migrateStageConfig, deleteOldAlerts } from '../db/operations'
 import { supabase } from '../db/supabase'
 import { DEFAULT_CONFIG } from '../utils/constants'
 import { getFamilyId } from '../utils/family'
@@ -55,6 +55,9 @@ export function FamilyProvider({ children }) {
 
   useEffect(() => { loadFamily() }, [loadFamily])
 
+  // W7: prune alerts older than 30 days — self-guarded to once per 24h per device
+  useEffect(() => { deleteOldAlerts() }, [])
+
   // ── Realtime subscription ────────────────────────────────────────────────────
   useEffect(() => {
     const channel = supabase
@@ -66,6 +69,7 @@ export function FamilyProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chore_logs' }, loadFamily)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payslips' }, loadFamily)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reward_requests' }, loadFamily)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, loadFamily)
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }

@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { FamilyProvider, useFamily } from './context/FamilyContext'
-import { getPendingLogsForMembers, getPendingMemberRequests, getPendingRewardRequests, getRewardRequests, getDeviceClaim, getOrCreateDeviceId, checkFamilyExists, getLatestPayslip } from './db/operations'
+import { getPendingLogsForMembers, getPendingMemberRequests, getPendingRewardRequests, getDeviceClaim, getOrCreateDeviceId, checkFamilyExists, getLatestPayslip } from './db/operations'
 import { supabase } from './db/supabase'
 import { getFamilyId, setFamilyId } from './utils/family'
 import ParentNav from './components/ParentNav'
@@ -212,9 +212,6 @@ function ChildShell() {
   const { currentMember, refreshMember } = useAuth()
   const { reloadCount } = useFamily()
   const [hasDraftPayslip, setHasDraftPayslip] = useState(false)
-  const [rewardToast, setRewardToast] = useState(null) // { title }
-  const seenRewardIds = useState(() => new Set())[0]
-  const isFirstLoad = useRef(true)
 
   const checkDraft = useCallback(async () => {
     if (!currentMember) return
@@ -222,26 +219,12 @@ function ChildShell() {
     setHasDraftPayslip(ps?.status === 'draft')
   }, [currentMember?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Refresh member data + check for newly-approved reward requests on every realtime tick
+  // Refresh member data on every realtime tick. (The old reward-approval toast
+  // lived here — absorbed by the W7 reward_approved banner on Home.)
   useEffect(() => {
     if (!currentMember) return
     refreshMember()
     checkDraft()
-    getRewardRequests(currentMember.id).then(reqs => {
-      if (isFirstLoad.current) {
-        // On mount: seed all existing IDs silently — never toast pre-existing approvals
-        reqs.forEach(r => seenRewardIds.add(r.id))
-        isFirstLoad.current = false
-        return
-      }
-      const approved = reqs.filter(r => r.status === 'approved' && !seenRewardIds.has(r.id))
-      if (approved.length > 0) {
-        setRewardToast({ title: approved[0].rewardTitle })
-        approved.forEach(r => seenRewardIds.add(r.id))
-        setTimeout(() => setRewardToast(null), 4000)
-      }
-      reqs.forEach(r => seenRewardIds.add(r.id))
-    }).catch(() => {})
   }, [reloadCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!currentMember || currentMember.role !== 'child') {
@@ -253,21 +236,6 @@ function ChildShell() {
         <Outlet />
       </div>
       <ChildNav hasDraftPayslip={hasDraftPayslip} />
-      {rewardToast && (
-        <div
-          onClick={() => setRewardToast(null)}
-          style={{
-            position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)',
-            background: 'var(--positive)', color: '#fff',
-            fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', fontWeight: 600,
-            padding: '10px 20px', borderRadius: '999px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-            zIndex: 9999, whiteSpace: 'nowrap', cursor: 'pointer',
-            animation: 'fadeInUp 0.3s ease',
-          }}>
-          🎉 {rewardToast.title} approved!
-        </div>
-      )}
     </div>
   )
 }

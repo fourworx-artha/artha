@@ -40,6 +40,7 @@ export default function Backup() {
         supabase.from('utility_charges').delete().in('member_id', memberIds),
         supabase.from('reward_requests').delete().in('member_id', memberIds),
         supabase.from('member_requests').delete().in('member_id', memberIds),
+        supabase.from('alerts').delete().eq('family_id', getFamilyId()),
         // Zero tax fund on the family row
         supabase.from('families').update({ tax_fund_balance: 0, tax_fund_history: [] }).eq('id', getFamilyId()),
       ])

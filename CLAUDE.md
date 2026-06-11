@@ -30,6 +30,12 @@ Household economy PWA for kids — salary, chores, savings, loans, rewards, cred
 - (2026-06-11) Settled-count queries treat NULL `status` as settled (`.or('status.eq.settled,status.is.null')`) — pre-status-column rows must count toward stage derivation, mirroring `mapPayslip`'s default
 - (2026-06-11) Onboarding starter config must NOT include `autoSettle` — the W3 first-settle prompt only fires while the key is `undefined`; the parent chooses the mode there (amends session-23 starterConfig)
 - (2026-06-11) Backup format v4 — restore preserves payslip `status`/`pending_transactions`/`credit_delta`/`bonus_potential`, maps reward `price → cost`, includes `member_requests`; `join_codes`/`device_claims` deliberately never in backups (device-bound). Do not restore from pre-v4 backups
+- (2026-06-11) W7 alerts: `dedupe_key` has a FULL unique index, not the blueprint's partial one — PostgREST's `on_conflict` cannot infer a partial index; NULLs are distinct so no-dedupe alerts still insert freely. `createAlert` upserts with `ignoreDuplicates: true` (ON CONFLICT DO NOTHING) — race-free across two parent devices
+- (2026-06-11) Alert writes never fail the triggering operation — use `tryCreateAlert` (or an inline try/catch) everywhere; settle-path alerts fire from the JS wrapper AFTER the RPC succeeds, never inside the transaction
+- (2026-06-11) The FIRST settle for a child fires `first_payslip` (parent + child) INSTEAD of `payslip_settled` — firing both would double the banners for one event. `stage_unlocked` alerts (W9 copy) also fire from the settle wrapper now; W9 adds only the celebratory banner styling
+- (2026-06-11) `chores_due` and `approvals_pending` are COMPUTED banners — derived on load, no alerts row; dismissal is per-device-per-day via localStorage (`artha_banner_dismissed:{key}:{date}`)
+- (2026-06-11) Alerts are ephemera: never exported in backups, cleared on reset and on import, pruned client-side after 30 days (`deleteOldAlerts`, 24h localStorage guard `artha_alerts_pruned_at`). Settling a payslip retires its `payslip_ready`/`payslip_overdue` alerts (read + dismissed)
+- (2026-06-11) W7 absorbed three local UI notices into alert rows: Dashboard's "drafted" banner → `payslip_ready`, Dashboard's overdue banner → `payslip_overdue` (dedupe `overdue:{payslipId}`), ChildShell's reward toast → `reward_approved` banner
 
 ## Key Business Rules
 - `mapReward` maps DB `cost` → JS `price` — never use `.cost` in UI or forms

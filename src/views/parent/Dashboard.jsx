@@ -6,9 +6,12 @@ import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { displayDate, today } from '../../utils/dates'
 import { runPayslip, settlePayslip } from '../../engine/payslip'
 import { getDueChoresForMember, buildLogMap } from '../../engine/chores'
-import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore, updateFamilyConfig } from '../../db/operations'
+import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore, updateFamilyConfig, tryCreateAlert, getPendingLogsForMembers, getPendingMemberRequests, getPendingRewardRequests } from '../../db/operations'
 import { getFamilyId } from '../../utils/family'
 import PayslipCard from '../../components/PayslipCard'
+import AlertBell from '../../components/AlertBell'
+import EventBanner from '../../components/EventBanner'
+import { useAlerts, alertRoute } from '../../hooks/useAlerts'
 import { useStage, useStages } from '../../hooks/useStage'
 import { stageHasFeature } from '../../utils/stages'
 
@@ -576,11 +579,12 @@ function PayslipSheet({ child, onClose, onSettle }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ParentDashboard() {
   const { currentMember } = useAuth()
-  const { family, children, chores, reload } = useFamily()
+  const { family, children, chores, reload, reloadCount } = useFamily()
   const navigate = useNavigate()
   const fmt = useCurrency()
   const { paydayToday: payday, periodEnd, progressPeriodStart, progressPeriodEnd, label: periodLabel } = usePeriod()
   const { stages, has: familyHas } = useStages()  // W6 per-child + family-level gating
+  const { banners, markRead, dismiss } = useAlerts()  // W7 alert rows for banners
 
   const [choreStats,     setChoreStats]     = useState({})
   const [periodStats,    setPeriodStats]    = useState({})
@@ -588,8 +592,7 @@ export default function ParentDashboard() {
   const [choreSheetFor,  setChoreSheetFor]  = useState(null)
   const [viewPayslipFor, setViewPayslipFor] = useState(null)
   const [allRan,               setAllRan]               = useState(false)
-  const [currentDrafts,        setCurrentDrafts]        = useState([]) // drafts for this period
-  const [overdueDrafts,        setOverdueDrafts]        = useState([]) // drafts from past periods
+  const [pendingApprovals,     setPendingApprovals]     = useState(0)
   const [showAutoSettlePrompt, setShowAutoSettlePrompt] = useState(false)
   const autoRanRef = useRef(false)
 
@@ -604,6 +607,22 @@ export default function ParentDashboard() {
         await Promise.allSettled(
           results.map(r => r.status === 'fulfilled' ? settlePayslip(r.value.id) : Promise.resolve())
         )
+      } else {
+        // W7: manual mode — each freshly-drafted payslip announces itself.
+        // Dedupe key makes the write race-free across two parent devices.
+        await Promise.all(results.map((r, i) => {
+          if (r.status !== 'fulfilled') return Promise.resolve()
+          const child = children[i]
+          return tryCreateAlert({
+            memberId:  child.id,
+            targetRole: 'parent',
+            type:      'payslip_ready',
+            title:     `📋 It's payday! ${child.name}'s payslip is ready to review and settle.`,
+            data:      { payslipId: r.value.id, memberId: child.id },
+            channels:  ['banner', 'bell'],
+            dedupeKey: `ready:${r.value.id}`,
+          })
+        }))
       }
       await reload()
       await refreshBanners()
@@ -697,23 +716,45 @@ export default function ParentDashboard() {
 
   useEffect(() => { loadPeriodStats() }, [loadPeriodStats])
 
-  // Check for draft payslips whose period has ended
+  // Check for draft payslips whose period has ended. Forgotten drafts write a
+  // payslip_overdue alert row (dedupe: once per payslip) — the alert IS the
+  // banner now (absorbed the old local overdue banner, W7).
   const refreshBanners = useCallback(async () => {
     const childIds = children.map(c => c.id)
-    if (!childIds.length) {
-      setOverdueDrafts([]); setCurrentDrafts([]); setAllRan(false); return
-    }
+    if (!childIds.length) { setAllRan(false); return }
     const [drafts, payslipChecks] = await Promise.all([
       getOverdueDrafts(childIds, periodEnd),
       Promise.all(children.map(c => getPayslipForPeriod(c.id, periodEnd))),
     ])
-    setOverdueDrafts(drafts)
-    const currentPs = payslipChecks.filter(Boolean)
-    setCurrentDrafts(currentPs.filter(p => p.status === 'draft'))
     setAllRan(payslipChecks.every(p => p !== null))
+    drafts.forEach(d => {
+      const child = children.find(c => c.id === d.memberId)
+      tryCreateAlert({
+        memberId:  d.memberId,
+        targetRole: 'parent',
+        type:      'payslip_overdue',
+        title:     `⚠️ ${child?.name ?? 'A child'}'s payslip is overdue — settle it before the next one.`,
+        data:      { payslipId: d.id, memberId: d.memberId },
+        channels:  ['banner', 'bell'],
+        dedupeKey: `overdue:${d.id}`,
+      })
+    })
   }, [children, periodEnd])
 
   useEffect(() => { refreshBanners() }, [refreshBanners])
+
+  // W7 computed banner: pending approvals count (no table row — derived live)
+  useEffect(() => {
+    const ids = children.map(c => c.id)
+    if (!ids.length) { setPendingApprovals(0); return }
+    Promise.all([
+      getPendingLogsForMembers(ids),
+      getPendingMemberRequests(ids),
+      getPendingRewardRequests(ids),
+    ]).then(([logs, memberReqs, rewardReqs]) =>
+      setPendingApprovals(logs.length + memberReqs.length + rewardReqs.length)
+    ).catch(() => {})
+  }, [children, reloadCount])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -726,13 +767,16 @@ export default function ParentDashboard() {
             {currentMember?.avatar} {currentMember?.name}
           </h2>
         </div>
-        <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-          Period ends {displayDate(periodEnd)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+            Period ends {displayDate(periodEnd)}
+          </span>
+          <AlertBell />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
-        {/* Payday banner — run payslips */}
+        {/* Payday banner — payslips drafting (transient, computed) */}
         {payday && !allRan && (
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
             style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)' }}>
@@ -742,30 +786,21 @@ export default function ParentDashboard() {
             </p>
           </div>
         )}
-        {/* Drafted banner — settle payslips */}
-        {allRan && currentDrafts.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-            style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)' }}>
-            <AlertCircle size={14} style={{ color: 'var(--positive)', flexShrink: 0 }} />
-            <p className="text-xs font-mono" style={{ color: 'var(--positive)' }}>
-              Payslips drafted ✓ — tap "Settle Pay" for each child below to release funds.
-            </p>
-          </div>
-        )}
 
-        {/* Overdue settlements banner */}
-        {overdueDrafts.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-            style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
-            <AlertCircle size={14} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-            <p className="text-xs font-mono" style={{ color: 'var(--warning)' }}>
-              {overdueDrafts.length === 1
-                ? `${children.find(c => c.id === overdueDrafts[0].memberId)?.name ?? 'A child'} has an unsettled payslip — tap "Settle Pay" to release funds.`
-                : `${overdueDrafts.length} unsettled payslips are ready — tap "Settle Pay" for each child.`
-              }
-            </p>
-          </div>
-        )}
+        {/* W7 event banners — payslip_ready / payslip_overdue / settled / stage
+            alert rows + the computed approvals_pending item. Replaces the old
+            local drafted + overdue banners. */}
+        <EventBanner
+          banners={banners}
+          computed={pendingApprovals > 0 ? [{
+            key:   'approvals',
+            type:  'approvals_pending',
+            title: `🔔 ${pendingApprovals} item${pendingApprovals === 1 ? '' : 's'} waiting for your approval`,
+            onTap: () => navigate('/parent/approve'),
+          }] : []}
+          onDismiss={a => dismiss(a.id)}
+          onTap={a => { markRead(a.id); navigate(alertRoute(a, 'parent')) }}
+        />
 
         {/* Tax Fund — view unlocks at Economist; tax still accrues silently before */}
         {family && familyHas('familyFund') && (
