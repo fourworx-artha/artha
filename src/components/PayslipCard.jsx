@@ -1,5 +1,6 @@
 import { displayDateFull } from '../utils/dates'
 import { useCurrency } from '../context/FamilyContext'
+import { formatCurrency } from '../utils/currency'
 import { stageHasFeature } from '../utils/stages'
 
 // ── Terminal primitives ───────────────────────────────────────────────────────
@@ -84,8 +85,13 @@ function TermBar({ value, max = 1, width = 16 }) {
 
 // ── Main PayslipCard ──────────────────────────────────────────────────────────
 
-export default function PayslipCard({ payslip, member, familyName }) {
-  const fmtCurr = useCurrency()
+export default function PayslipCard({ payslip, member, familyName, currency }) {
+  const fmtFamily = useCurrency()
+  // `currency` prop overrides the family config — used by the onboarding
+  // preview, where no family exists yet and the hook falls back to INR.
+  const fmtCurr = currency
+    ? (n, opts) => formatCurrency(n, currency, opts)
+    : fmtFamily
   const fmt = (n) => {
     if (n == null) return fmtCurr(0, { forceDecimals: true })
     return (n < 0 ? '−' : '') + fmtCurr(Math.abs(n), { forceDecimals: true })

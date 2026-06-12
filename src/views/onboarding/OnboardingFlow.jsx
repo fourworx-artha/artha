@@ -58,6 +58,7 @@ function buildMockPayslip(salary) {
     interestEarned: 0, creditScore: 500, status: 'settled', stage: 'starter',
     bonusPotential: 0, pendingTransactions: [], creditDelta: 0,
     loanOutstandingAfter: 0, balancesAfter: { spending: net, savings: 0 },
+    createdAt: new Date().toISOString(),
   }
 }
 
@@ -137,7 +138,8 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
   const [chores,    setChores]    = useState(['Make bed', 'Clear dishes'])
   const [paydayDow, setPaydayDow] = useState(6)
 
-  const [currency]  = useState(detectCurrency)
+  const [currency, setCurrency] = useState(detectCurrency)
+  const [showCurrencyPicker, setShowCurrencyPicker] = useState(false)
 
   const [creating,       setCreating]       = useState(false)
   const [error,          setError]          = useState(null)
@@ -423,10 +425,27 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
             className="flex-1 bg-transparent text-sm font-mono outline-none"
             style={{ color: 'var(--text-primary)' }} />
         </div>
-        <p className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>
-          Currency: {CURRENCIES[currency]?.name ?? currency} ·{' '}
-          <span style={{ color: 'var(--accent-blue)' }}>Change currency</span> in settings after setup.
-        </p>
+        <button onClick={() => setShowCurrencyPicker(v => !v)}
+          className="self-start text-xs font-mono">
+          <span style={{ color: 'var(--text-dim)' }}>Currency: {CURRENCIES[currency]?.name ?? currency} · </span>
+          <span style={{ color: 'var(--accent-blue)' }}>{showCurrencyPicker ? 'Done' : 'Change'}</span>
+        </button>
+        {showCurrencyPicker && (
+          <div className="grid grid-cols-4 gap-2">
+            {Object.values(CURRENCIES).map(c => (
+              <button key={c.code}
+                onClick={() => { setCurrency(c.code); setShowCurrencyPicker(false) }}
+                className="flex flex-col items-center gap-0.5 py-2 rounded-xl transition-all active:scale-90"
+                style={{
+                  background: currency === c.code ? 'rgba(96,165,250,0.15)' : 'var(--bg-raised)',
+                  border: `2px solid ${currency === c.code ? 'var(--accent-blue)' : 'transparent'}`,
+                }}>
+                <span className="text-sm font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{c.symbol}</span>
+                <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{c.code}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="shrink-0 mt-2">
         <ContinueBtn
@@ -624,6 +643,7 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
         payslip={buildMockPayslip(parseInt(children[0].salary) || 0)}
         member={{ name: children[0].name, avatar: children[0].avatar }}
         familyName={`The ${familyName.trim()} Family`}
+        currency={currency}
       />
       <div className="px-3 py-3 rounded-xl shrink-0"
         style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}>
