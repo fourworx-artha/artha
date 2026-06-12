@@ -380,7 +380,9 @@ export async function addChore(chore) {
     type:         chore.type,
     recurrence:   chore.recurrence,
     days_per_week: chore.daysPerWeek ?? null,
-    days_of_week:  chore.daysOfWeek ?? null,
+    // Only sent when set — keeps chore creation working on DBs that haven't
+    // run the PhaseA_chore_days_of_week migration ('days' itself needs it)
+    ...(chore.daysOfWeek != null && { days_of_week: chore.daysOfWeek }),
     value:        chore.value ?? 0,
     assigned_to:  chore.assignedTo ?? [],
     is_active:    chore.isActive ?? true,
@@ -396,7 +398,7 @@ export async function updateChore(id, changes) {
   if ('type' in changes)       row.type          = changes.type
   if ('recurrence' in changes) row.recurrence    = changes.recurrence
   if ('daysPerWeek' in changes) row.days_per_week = changes.daysPerWeek
-  if ('daysOfWeek' in changes)  row.days_of_week  = changes.daysOfWeek
+  if ('daysOfWeek' in changes && changes.daysOfWeek != null) row.days_of_week = changes.daysOfWeek
   if ('value' in changes)      row.value         = changes.value
   if ('assignedTo' in changes) row.assigned_to   = changes.assignedTo
   if ('isActive' in changes)   row.is_active     = changes.isActive
