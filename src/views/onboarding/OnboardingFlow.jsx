@@ -295,7 +295,7 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
           style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}>
           <span className="text-sm font-mono" style={{ color: 'var(--text-dim)' }}>The</span>
           <input autoFocus value={familyName} onChange={e => setFamilyName(e.target.value)}
-            placeholder="Kamboj"
+            placeholder="Smith"
             className="flex-1 bg-transparent text-sm font-mono outline-none"
             style={{ color: 'var(--text-primary)' }} />
           <span className="text-sm font-mono" style={{ color: 'var(--text-dim)' }}>Family</span>
@@ -326,7 +326,7 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
       <div className="flex flex-col gap-2 shrink-0">
         <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>YOUR NAME</p>
         <input autoFocus value={parentName} onChange={e => setParentName(e.target.value)}
-          placeholder="e.g. Deepak"
+          placeholder="e.g. Alex"
           className="w-full px-4 py-3 rounded-xl text-sm font-mono outline-none"
           style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
       </div>
@@ -401,7 +401,7 @@ export default function OnboardingFlow({ onComplete, onJoinInstead }) {
       <div className="flex flex-col gap-2 shrink-0">
         <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>CHILD'S NAME</p>
         <input autoFocus value={child.name} onChange={e => updateChild({ name: e.target.value })}
-          placeholder="e.g. Aarav"
+          placeholder="e.g. Maya"
           className="w-full px-4 py-3 rounded-xl text-sm font-mono outline-none"
           style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
       </div>
