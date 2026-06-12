@@ -73,7 +73,7 @@ function AvatarGrid({ members, onSelect, selected }) {
     <div className="flex flex-col items-center gap-6 w-full">
       <div>
         <p className="text-xs font-mono text-center mb-1" style={{ color: 'var(--text-muted)' }}>
-          ARTHA
+          ARTO
         </p>
         <h1 className="text-2xl font-mono font-semibold text-center" style={{ color: 'var(--text-primary)' }}>
           Who are you?
@@ -199,7 +199,7 @@ export default function PinAuth() {
 
       {/* Footer */}
       <p className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>
-        ARTHA v0.1 — Family Economy
+        ARTO v0.1 — Family Economy
       </p>
     </div>
   )

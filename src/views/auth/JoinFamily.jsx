@@ -32,7 +32,7 @@ export default function JoinFamily({ onClaimed, onSkip }) {
     <div className="flex flex-col items-center justify-between h-full py-10 px-6">
       {/* Header */}
       <div className="flex flex-col items-center gap-2 w-full">
-        <p className="text-xs font-mono tracking-widest" style={{ color: 'var(--text-dim)' }}>ARTHA</p>
+        <p className="text-xs font-mono tracking-widest" style={{ color: 'var(--text-dim)' }}>ARTO</p>
         <h1 className="text-2xl font-mono font-semibold text-center" style={{ color: 'var(--text-primary)' }}>
           Join your family
         </h1>

@@ -118,7 +118,7 @@ export default function PayslipCard({ payslip, member, familyName, currency }) {
       {/* Header */}
       <div>
         <div style={{ fontFamily: 'JetBrains Mono', fontSize: '10px', letterSpacing: '0.15em', color: 'var(--text-dim)' }}>
-          ARTHA PAYROLL SYSTEM
+          ARTO PAYROLL SYSTEM
         </div>
         <div style={{ fontFamily: 'JetBrains Mono', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
           {member?.name ?? '—'}
