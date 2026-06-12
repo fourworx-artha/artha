@@ -4,6 +4,7 @@ import { addDays, subDays, parseISO, format, getDay } from 'date-fns'
 import { exportAllData, importAllData, getFamily, getMembers, getChores, getPayslipForPeriod, getMember, giveLoan, giveBonus, getRewards, transferSavingsToWallet, addTransaction, updateMemberAccounts, parentDonate, parentDepositToSubGoal } from '../../db/operations'
 import { migrateToSupabase } from '../../db/migrate'
 import { runPayslip, settlePayslip } from '../../engine/payslip'
+import { choreDueOnDow } from '../../engine/chores'
 import { supabase } from '../../db/supabase'
 import { useFamily } from '../../context/FamilyContext'
 import { getFamilyId } from '../../utils/family'
@@ -105,15 +106,7 @@ export default function Backup() {
 
       // isDueOnDay: returns true if chore is due on given Date object
       function isDueOnDay(chore, date) {
-        const dow = getDay(date)
-        switch (chore.recurrence) {
-          case 'daily':   return true
-          case 'weekday': return dow >= 1 && dow <= 5
-          case 'weekend': return dow === 0 || dow === 6
-          case 'weekly':  return dow === 1
-          case 'custom':  return true
-          default:        return false
-        }
+        return choreDueOnDow(chore, getDay(date))
       }
 
       let totalPayslips = 0

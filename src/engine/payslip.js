@@ -11,7 +11,7 @@ import { deriveStage, stageRank } from '../utils/stages'
 import { roundRupees, formatCurrency } from '../utils/currency'
 import { currentPeriodStart, currentPeriodEnd, daysAgo } from '../utils/dates'
 import { calculateWeeklyInterest } from './interest'
-import { calculateStreak } from './chores'
+import { calculateStreak, choreDueOnDow } from './chores'
 import { getFamilyId } from '../utils/family'
 
 // ── Engine defaults (W6 base layer) ───────────────────────────────────────────
@@ -69,16 +69,7 @@ export function calculatePayslip({
 
     for (const date of activeDates) {
       const day = getDay(parseISO(date))
-      let due = false
-      switch (chore.recurrence) {
-        case 'daily':   due = true; break
-        case 'weekday': due = day >= 1 && day <= 5; break
-        case 'weekend': due = day === 0 || day === 6; break
-        case 'weekly':  due = day === 1; break
-        case 'custom':  due = true; break
-        default:        due = false
-      }
-      if (due) {
+      if (choreDueOnDow(chore, day)) {
         expected++
         if (choreLogs.some(l => l.choreId === chore.id && l.date === date && l.status === 'approved')) {
           approved++
@@ -131,15 +122,7 @@ export function calculatePayslip({
     const day     = d.getDay()
     const dateStr = d.toISOString().split('T')[0]
     for (const chore of mandatoryChores) {
-      let due = false
-      switch (chore.recurrence) {
-        case 'daily':   due = true; break
-        case 'weekday': due = day >= 1 && day <= 5; break
-        case 'weekend': due = day === 0 || day === 6; break
-        case 'weekly':  due = day === 1; break
-        case 'custom':  due = true; break
-      }
-      if (due) {
+      if (choreDueOnDow(chore, day)) {
         fullPeriodExpected++
         if (choreLogs.some(l =>
           l.choreId === chore.id && l.date === dateStr &&
@@ -159,6 +142,7 @@ export function calculatePayslip({
       case 'weekday': freq = Math.round(periodDays * 5 / 7); break
       case 'weekend': freq = Math.round(periodDays * 2 / 7); break
       case 'weekly':  freq = Math.ceil(periodDays / 7); break
+      case 'days':    freq = Math.round((periodDays / 7) * (c.daysOfWeek?.length ?? 0)); break
       case 'custom':  freq = Math.round((periodDays / 7) * (c.daysPerWeek ?? 1)); break
       default:        freq = 1; break
     }

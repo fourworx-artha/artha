@@ -3,21 +3,9 @@ import { CheckCircle, Clock, XCircle, Circle, Zap } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useFamily } from '../../context/FamilyContext'
 import { getChoreLogsForDate, addChoreLog } from '../../db/operations'
-import { getDueChoresForMember, getAvailableBonusChores, buildLogMap } from '../../engine/chores'
+import { getDueChoresForMember, getAvailableBonusChores, buildLogMap, choreWeeklyFreq as weeklyFreq } from '../../engine/chores'
 import { today, displayDate } from '../../utils/dates'
 import { useCurrency } from '../../context/FamilyContext'
-
-// Expected completions per week for a chore
-function weeklyFreq(chore) {
-  switch (chore.recurrence) {
-    case 'daily':   return 7
-    case 'weekday': return 5
-    case 'weekend': return 2
-    case 'weekly':  return 1
-    case 'custom':  return chore.daysPerWeek ?? 3
-    default:        return 0
-  }
-}
 
 // ── Status icon ───────────────────────────────────────────────────────────────
 function StatusIcon({ status }) {

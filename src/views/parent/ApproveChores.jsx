@@ -10,17 +10,7 @@ import {
 } from '../../db/operations'
 import { displayDate } from '../../utils/dates'
 import { useCurrency } from '../../context/FamilyContext'
-
-function weeklyFreq(chore) {
-  switch (chore.recurrence) {
-    case 'daily':   return 7
-    case 'weekday': return 5
-    case 'weekend': return 2
-    case 'weekly':  return 1
-    case 'custom':  return chore.daysPerWeek ?? 3
-    default:        return 0
-  }
-}
+import { choreWeeklyFreq as weeklyFreq } from '../../engine/chores'
 
 export default function ApproveChores() {
   const { children, chores, reload } = useFamily()

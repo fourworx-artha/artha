@@ -79,9 +79,13 @@ export const CHORE_RECURRENCE = {
   weekday: 'Weekdays',
   weekend: 'Weekends',
   weekly:  'Weekly',
+  days:    'Specific days',
   custom:  'Custom (n×/week)',
   once:    'One-time',
 }
+
+// 0=Sun … 6=Sat — matches JS getDay()
+export const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export const TRANSACTION_TYPES = {
   salary:       'Salary',

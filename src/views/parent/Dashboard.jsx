@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { displayDate, today } from '../../utils/dates'
 import { runPayslip, settlePayslip } from '../../engine/payslip'
-import { getDueChoresForMember, buildLogMap } from '../../engine/chores'
+import { getDueChoresForMember, buildLogMap, choreDueOnDow } from '../../engine/chores'
 import { getChoreLogsForDate, getChoreLogsForPeriod, giveBonus, giveLoan, getPayslips, getPayslipForPeriod, getOverdueDrafts, parentCompleteChore, parentUndoChore, updateFamilyConfig, tryCreateAlert, getPendingLogsForMembers, getPendingMemberRequests, getPendingRewardRequests } from '../../db/operations'
 import { getFamilyId } from '../../utils/family'
 import PayslipCard from '../../components/PayslipCard'
@@ -21,17 +21,7 @@ function ParentChoreSheet({ child, chores, onClose, onDone }) {
   const dateStr = today()
   const dueChores = chores.filter(c =>
     c.isActive && c.assignedTo.includes(child.id) &&
-    (() => {
-      const dow = new Date().getDay()
-      switch (c.recurrence) {
-        case 'daily':   return true
-        case 'weekday': return dow >= 1 && dow <= 5
-        case 'weekend': return dow === 0 || dow === 6
-        case 'weekly':  return dow === 1
-        case 'custom':  return true
-        default:        return false
-      }
-    })()
+    choreDueOnDow(c, new Date().getDay())
   )
 
   const mandatory = dueChores.filter(c => c.type === 'mandatory')
@@ -706,15 +696,7 @@ export default function ParentDashboard() {
         let exp = 0, app = 0
         for (const date of allDates) {
           const day = new Date(date + 'T12:00:00').getDay()
-          let due = false
-          switch (chore.recurrence) {
-            case 'daily':   due = true; break
-            case 'weekday': due = day >= 1 && day <= 5; break
-            case 'weekend': due = day === 0 || day === 6; break
-            case 'weekly':  due = day === 1; break
-            case 'custom':  due = true; break
-          }
-          if (due) {
+          if (choreDueOnDow(chore, day)) {
             exp++
             if (logs.some(l => l.choreId === chore.id && l.date === date && l.status === 'approved')) app++
           }

@@ -46,6 +46,7 @@ function mapChore(row) {
     type:         row.type,
     recurrence:   row.recurrence,
     daysPerWeek:  row.days_per_week,
+    daysOfWeek:   row.days_of_week,
     value:        row.value,
     assignedTo:   row.assigned_to ?? [],
     isActive:     row.is_active ?? true,
@@ -379,6 +380,7 @@ export async function addChore(chore) {
     type:         chore.type,
     recurrence:   chore.recurrence,
     days_per_week: chore.daysPerWeek ?? null,
+    days_of_week:  chore.daysOfWeek ?? null,
     value:        chore.value ?? 0,
     assigned_to:  chore.assignedTo ?? [],
     is_active:    chore.isActive ?? true,
@@ -394,6 +396,7 @@ export async function updateChore(id, changes) {
   if ('type' in changes)       row.type          = changes.type
   if ('recurrence' in changes) row.recurrence    = changes.recurrence
   if ('daysPerWeek' in changes) row.days_per_week = changes.daysPerWeek
+  if ('daysOfWeek' in changes)  row.days_of_week  = changes.daysOfWeek
   if ('value' in changes)      row.value         = changes.value
   if ('assignedTo' in changes) row.assigned_to   = changes.assignedTo
   if ('isActive' in changes)   row.is_active     = changes.isActive

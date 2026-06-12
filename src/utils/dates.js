@@ -77,22 +77,6 @@ export function displayDateFull(dateStr) {
   return format(parseISO(dateStr), 'd MMM yyyy')
 }
 
-/**
- * Whether a chore is due today based on its recurrence.
- */
-export function isDueToday(recurrence, daysPerWeek) {
-  const day = getDay(new Date()) // 0=Sun, 1=Mon, ..., 6=Sat
-  switch (recurrence) {
-    case 'daily':   return true
-    case 'weekday': return day >= 1 && day <= 5
-    case 'weekend': return day === 0 || day === 6
-    case 'weekly':  return day === 1 // Mondays
-    case 'once':    return false
-    case 'custom':  return true
-    default:        return false
-  }
-}
-
 /** Format as short "Apr 12" */
 export function shortDate(dateStr) {
   return format(parseISO(dateStr), 'MMM d')

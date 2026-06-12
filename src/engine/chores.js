@@ -1,15 +1,47 @@
 import { format, subDays, getDay } from 'date-fns'
-import { isDueToday } from '../utils/dates'
+
+/**
+ * Whether a chore is due on a given day-of-week (0=Sun … 6=Sat).
+ * Single source of truth for recurrence — today's chore lists, streaks,
+ * and the payslip engine all resolve due-ness through this.
+ * 'custom' (n×/week, any days) is due every day — callers cap totals
+ * by daysPerWeek; 'days' is due only on the picked daysOfWeek.
+ */
+export function choreDueOnDow(chore, dow) {
+  switch (chore.recurrence) {
+    case 'daily':   return true
+    case 'weekday': return dow >= 1 && dow <= 5
+    case 'weekend': return dow === 0 || dow === 6
+    case 'weekly':  return dow === 1
+    case 'days':    return (chore.daysOfWeek ?? []).includes(dow)
+    case 'custom':  return true
+    default:        return false
+  }
+}
+
+/** Expected completions per week for a chore based on its recurrence. */
+export function choreWeeklyFreq(chore) {
+  switch (chore.recurrence) {
+    case 'daily':   return 7
+    case 'weekday': return 5
+    case 'weekend': return 2
+    case 'weekly':  return 1
+    case 'days':    return chore.daysOfWeek?.length ?? 0
+    case 'custom':  return chore.daysPerWeek ?? 3
+    default:        return 0
+  }
+}
 
 /**
  * Returns mandatory chores assigned to a member that are due today.
  */
 export function getDueChoresForMember(allChores, memberId) {
+  const dow = getDay(new Date())
   return allChores.filter(chore =>
     chore.isActive &&
     chore.type === 'mandatory' &&
     chore.assignedTo.includes(memberId) &&
-    isDueToday(chore.recurrence, chore.daysPerWeek)
+    choreDueOnDow(chore, dow)
   )
 }
 
@@ -79,17 +111,7 @@ export function calculateStreak(choreLogs, mandatoryChores) {
 
     // Which chores were due on this day?
     const dueIds = mandatoryChores
-      .filter(c => {
-        if (!c.isActive) return false
-        switch (c.recurrence) {
-          case 'daily':   return true
-          case 'weekday': return dow >= 1 && dow <= 5
-          case 'weekend': return dow === 0 || dow === 6
-          case 'weekly':  return dow === 1
-          case 'custom':  return true
-          default:        return false
-        }
-      })
+      .filter(c => c.isActive && choreDueOnDow(c, dow))
       .map(c => c.id)
 
     if (dueIds.length === 0) {

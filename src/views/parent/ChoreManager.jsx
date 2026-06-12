@@ -2,30 +2,20 @@ import { useState, useCallback, useRef } from 'react'
 import { Plus, X, Check, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { addChore, updateChore, toggleChoreActive, updateMember } from '../../db/operations'
-import { CHORE_RECURRENCE } from '../../utils/constants'
+import { CHORE_RECURRENCE, DOW_SHORT } from '../../utils/constants'
 import { getFamilyId } from '../../utils/family'
+import { choreWeeklyFreq as weeklyFreq } from '../../engine/chores'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Expected completions per week for a chore based on recurrence */
-function weeklyFreq(chore) {
-  switch (chore.recurrence) {
-    case 'daily':   return 7
-    case 'weekday': return 5
-    case 'weekend': return 2
-    case 'weekly':  return 1
-    case 'custom':  return chore.daysPerWeek ?? 3
-    default:        return 0
-  }
-}
 
 const WEEKS_PER_MONTH = 52 / 12 // ≈ 4.33
 
 // ── Recurrence badge ──────────────────────────────────────────────────────────
-function RecurrenceBadge({ recurrence, daysPerWeek }) {
+function RecurrenceBadge({ recurrence, daysPerWeek, daysOfWeek }) {
   const labels = {
     daily: 'Daily', weekday: 'Wkday', weekend: 'Wkend',
     weekly: 'Weekly', custom: `${daysPerWeek}×/wk`, once: 'Once',
+    days: (daysOfWeek ?? []).map(d => DOW_SHORT[d]).join('·') || 'No days',
   }
   return (
     <span className="text-xs font-mono px-1.5 py-0.5 rounded"
@@ -191,6 +181,7 @@ function ChoreForm({ type, initial, defaultAssigned, childMembers, onSave, onClo
   const [recurrence,  setRecurrence]  = useState(initial?.recurrence  ?? 'daily')
   const [value,       setValue]       = useState(initial?.value        ?? 0)
   const [daysPerWeek, setDaysPerWeek] = useState(initial?.daysPerWeek ?? 3)
+  const [daysOfWeek,  setDaysOfWeek]  = useState(initial?.daysOfWeek  ?? [])
   const [assignedTo,  setAssignedTo]  = useState(initial?.assignedTo  ?? defaultAssigned ?? [])
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState('')
@@ -211,6 +202,9 @@ function ChoreForm({ type, initial, defaultAssigned, childMembers, onSave, onClo
     if (type === 'mandatory' && assignedTo.length === 0) {
       setError('Assign to at least one child'); return
     }
+    if (recurrence === 'days' && daysOfWeek.length === 0) {
+      setError('Pick at least one day'); return
+    }
     // Validate salaries for assigned children
     if (type === 'mandatory') {
       for (const id of assignedTo) {
@@ -226,6 +220,7 @@ function ChoreForm({ type, initial, defaultAssigned, childMembers, onSave, onClo
       value: type === 'bonus' ? Number(value) : 0,
       recurrence,
       daysPerWeek: recurrence === 'custom' ? Number(daysPerWeek) : null,
+      daysOfWeek:  recurrence === 'days' ? [...daysOfWeek].sort((a, b) => a - b) : null,
       assignedTo,
       isActive: initial?.isActive ?? true,
     }
@@ -301,6 +296,32 @@ function ChoreForm({ type, initial, defaultAssigned, childMembers, onSave, onClo
               ))}
             </div>
           </div>
+
+          {/* Day picker (specific days only) */}
+          {recurrence === 'days' && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>WHICH DAYS?</label>
+              <div className="grid grid-cols-7 gap-1.5">
+                {DOW_SHORT.map((label, d) => {
+                  const on = daysOfWeek.includes(d)
+                  return (
+                    <button key={d}
+                      onClick={() => setDaysOfWeek(prev =>
+                        on ? prev.filter(x => x !== d) : [...prev, d]
+                      )}
+                      className="py-2 rounded-lg text-xs font-mono transition-all active:scale-90"
+                      style={{
+                        background: on ? 'var(--accent-blue)' : 'var(--bg-raised)',
+                        border: `1px solid ${on ? 'var(--accent-blue)' : 'var(--border)'}`,
+                        color: on ? '#fff' : 'var(--text-muted)',
+                      }}>
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Days per week (custom only) */}
           {recurrence === 'custom' && (
@@ -415,7 +436,7 @@ function ChoreRow({ chore, weeklyValue, assignedChildren, onEdit, onToggle }) {
           {chore.title}
         </p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
-          <RecurrenceBadge recurrence={chore.recurrence} daysPerWeek={chore.daysPerWeek} />
+          <RecurrenceBadge recurrence={chore.recurrence} daysPerWeek={chore.daysPerWeek} daysOfWeek={chore.daysOfWeek} />
           {chore.type === 'bonus' && chore.value > 0 && (
             <span className="text-xs font-mono font-semibold" style={{ color: 'var(--positive)' }}>
               {fmt(chore.value)}

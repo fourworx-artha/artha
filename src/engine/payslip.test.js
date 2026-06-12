@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { calculatePayslip, ENGINE_DEFAULTS } from './payslip'
+import { choreDueOnDow } from './chores'
 import { deriveStage, stageRank, stageHasFeature, buildStagePatch, unlockedStageKeys } from '../utils/stages'
 
 // ── Minimal fixtures ──────────────────────────────────────────────────────────
@@ -276,6 +277,34 @@ describe('stage patches', () => {
   it('keys already at the patch value are omitted (idempotent re-apply)', () => {
     const config = { autoSavePercent: 0.20, interestRate: 0.02 }
     expect(buildStagePatch(config, 'saver')).toEqual({})
+  })
+
+})
+
+describe('specific-days recurrence (days + daysOfWeek)', () => {
+
+  const tueFri = {
+    id: 'c1', type: 'mandatory', isActive: true,
+    assignedTo: ['test-member'], recurrence: 'days', daysOfWeek: [2, 5], value: 0,
+  }
+
+  it('choreDueOnDow: due only on the picked days; missing daysOfWeek → never due', () => {
+    expect(choreDueOnDow(tueFri, 2)).toBe(true)
+    expect(choreDueOnDow(tueFri, 5)).toBe(true)
+    expect([0, 1, 3, 4, 6].some(d => choreDueOnDow(tueFri, d))).toBe(false)
+    expect(choreDueOnDow({ recurrence: 'days' }, 2)).toBe(false)
+  })
+
+  it('payslip expects the chore only on its days: 1 of 2 done → 50% completion', () => {
+    // 2026-06-02 = Tuesday, 2026-06-03 = Wednesday, 2026-06-05 = Friday
+    const logs = [
+      { choreId: 'c1', date: '2026-06-02', status: 'approved' },
+      { choreId: 'c1', date: '2026-06-03', status: 'approved' }, // not a due day — must not count
+      { choreId: 'c1', date: '2026-06-05', status: 'rejected' },
+    ]
+    const result = calculatePayslip(baseArgs({ allChores: [tueFri], choreLogs: logs }))
+    expect(result.earnings.mandatoryCompletionPercent).toBe(0.5)
+    expect(result.earnings.adjustedSalary).toBe(50)
   })
 
 })

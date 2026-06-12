@@ -5,7 +5,7 @@ import { useFamily, useCurrency, usePeriod } from '../../context/FamilyContext'
 import { displayDate, today } from '../../utils/dates'
 import { calculatePayslip } from '../../engine/payslip'
 import { getChoreLogsForPeriod, getChoreLogsForDate, getChores, getUtilityCharges, makeEarlyRepayment, getLatestPayslip, markCreditPopupSeen, getPayslips, addMemberRequest, getTransactions, getTransactionsForPeriod } from '../../db/operations'
-import { calculateStreak, getDueChoresForMember } from '../../engine/chores'
+import { calculateStreak, getDueChoresForMember, choreDueOnDow } from '../../engine/chores'
 import { getFamilyId } from '../../utils/family'
 import { daysAgo } from '../../utils/dates'
 import { useStage } from '../../hooks/useStage'
@@ -840,15 +840,7 @@ export default function ChildHome() {
         const day = d.getDay()
         const dateStr = d.toISOString().split('T')[0]
         for (const chore of mandatoryChores) {
-          let due = false
-          switch (chore.recurrence) {
-            case 'daily':   due = true; break
-            case 'weekday': due = day >= 1 && day <= 5; break
-            case 'weekend': due = day === 0 || day === 6; break
-            case 'weekly':  due = day === 1; break
-            case 'custom':  due = true; break
-          }
-          if (due) {
+          if (choreDueOnDow(chore, day)) {
             totalExpected++
             if (choreLogs.some(l => l.choreId === chore.id && l.date === dateStr && l.status === 'approved'))
               totalApproved++
